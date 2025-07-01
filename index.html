@@ -1,18 +1,48 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
   <meta charset="UTF-8" />
   <title>Анализ айтрекинга</title>
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
-  <h1>Анализ айтрекингового чтения</h1>
-  <div>
-    <label>Загрузить изображение: <input type="file" id="imageLoader" accept="image/*" /></label><br />
-    <label>Загрузить данные (XLSX): <input type="file" id="dataLoader" accept=".xlsx" /></label>
+  <div class="container">
+    <section class="block" id="intro">
+      <h1>Анализ айтрекингового чтения</h1>
+      <p>Загрузите стимул и данные фиксаций для визуального анализа поведения чтения.</p>
+    </section>
+
+    <section class="block" id="upload-image">
+      <h2>1. Загрузка изображения-стимула</h2>
+      <input type="file" id="imageLoader" accept="image/*" />
+    </section>
+    
+    <section class="block" id="upload-aoi">
+      <h2>3. Загрузка AOI (.json)</h2>
+      <input type="file" id="aoiLoader" accept=".json" />
+    </section>
+
+
+    <section class="block" id="upload-data">
+      <h2>2. Загрузка айтрекинговых данных (.xlsx)</h2>
+      <input type="file" id="dataLoader" accept=".xlsx" />
+    </section>
+
+    <section class="block" id="visualization">
+      <h2>3. Визуализация фиксаций</h2>
+      <canvas id="canvas" width="800" height="600"></canvas>
+    </section>
+
+    <section class="block" id="analysis">
+      <h2>4. Расширенный анализ</h2>
+      <p>Здесь может быть отображена тепловая карта, саккады или временной прогресс.</p>
+    </section>
   </div>
-  <canvas id="canvas" width="800" height="600"></canvas>
+
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <script src="script.js"></script>
 </body>
+
 </html>
