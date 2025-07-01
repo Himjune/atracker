@@ -1,48 +1,262 @@
 <!DOCTYPE html>
 <html lang="ru">
-
 <head>
   <meta charset="UTF-8" />
-  <title>Анализ айтрекинга</title>
-  <link rel="stylesheet" href="style.css" />
-</head>
+  <title>Айтрекинг: фиксации и AOI</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      line-height: 1.5;
+      background-color: #f7f7f7;
+      color: #222;
+      overflow-y: scroll;
+    }
 
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .block {
+      width: 100%;
+      padding: 2rem;
+      box-sizing: border-box;
+      background-color: #ffffff;
+      border-bottom: 1px solid #ddd;
+    }
+
+    h1, h2 {
+      margin-top: 0;
+    }
+
+    canvas {
+      display: block;
+      margin: 1rem auto;
+      width: calc(100% - 2rem);
+      height: auto;
+      aspect-ratio: 16 / 9;
+      border: 2px solid #444;
+      background-color: #eaeaea;
+    }
+
+    .participant-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .participant-controls label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .participant-controls input[type="text"] {
+      flex: 1;
+    }
+  </style>
+</head>
 <body>
   <div class="container">
     <section class="block" id="intro">
       <h1>Анализ айтрекингового чтения</h1>
-      <p>Загрузите стимул и данные фиксаций для визуального анализа поведения чтения.</p>
+      <p>Загрузите изображение, Excel с фиксациями и JSON с AOI для визуального анализа.</p>
     </section>
 
     <section class="block" id="upload-image">
-      <h2>1. Загрузка изображения-стимула</h2>
+      <h2>1. Загрузка изображения</h2>
       <input type="file" id="imageLoader" accept="image/*" />
     </section>
-    
+
+    <section class="block" id="upload-data">
+      <h2>2. Загрузка фиксаций (.xlsx)</h2>
+      <input type="file" id="dataLoader" accept=".xlsx" />
+      <div id="participantList" class="participant-controls"></div>
+    </section>
+
     <section class="block" id="upload-aoi">
       <h2>3. Загрузка AOI (.json)</h2>
       <input type="file" id="aoiLoader" accept=".json" />
     </section>
 
-
-    <section class="block" id="upload-data">
-      <h2>2. Загрузка айтрекинговых данных (.xlsx)</h2>
-      <input type="file" id="dataLoader" accept=".xlsx" />
-    </section>
-
     <section class="block" id="visualization">
-      <h2>3. Визуализация фиксаций</h2>
-      <canvas id="canvas" width="800" height="600"></canvas>
-    </section>
-
-    <section class="block" id="analysis">
-      <h2>4. Расширенный анализ</h2>
-      <p>Здесь может быть отображена тепловая карта, саккады или временной прогресс.</p>
+      <h2>4. Визуализация</h2>
+      <canvas id="canvas"></canvas>
     </section>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-  <script src="script.js"></script>
-</body>
 
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const participantListDiv = document.getElementById("participantList");
+
+    let image = new Image();
+    let participants = [];
+    let aoiList = [];
+
+    document.getElementById("imageLoader").addEventListener("change", handleImage, false);
+    document.getElementById("dataLoader").addEventListener("change", handleData, false);
+    document.getElementById("aoiLoader").addEventListener("change", handleAoi, false);
+    window.addEventListener("resize", drawImageAndFixations);
+
+    function resizeCanvasToDisplaySize() {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.width * 9 / 16;
+    }
+
+    function getRandomColor() {
+      const r = Math.floor(Math.random() * 200);
+      const g = Math.floor(Math.random() * 200);
+      const b = Math.floor(Math.random() * 200);
+      return `rgb(${r},${g},${b})`;
+    }
+
+    function handleImage(e) {
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        image.onload = function () {
+          resizeCanvasToDisplaySize();
+          drawImageAndFixations();
+        };
+        image.src = event.target.result;
+      };
+      reader.readAsDataURL(e.target.files[0]);
+    }
+
+    function handleData(e) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = function (evt) {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+        let current = null;
+        let count = 0;
+        participants = [];
+
+        rows.forEach(row => {
+          if (!row || row.length < 2) return;
+          const header = String(row[0]).trim();
+          if (header === "TIME" && row[1] === "Valid") {
+            count++;
+            current = {
+              name: file.name.replace(/\.xlsx$/, '') + "_P" + count,
+              data: [],
+              color: getRandomColor(),
+              visible: true
+            };
+            participants.push(current);
+          } else if (current && row.length >= 8) {
+            current.data.push({
+              time: +row[0],
+              time2: +row[1],
+              validity: +row[2],
+              x: +row[3],
+              y: +row[4],
+              z: +row[5],
+              lp: +row[6],
+              rp: +row[7]
+            });
+          }
+        });
+
+        updateParticipantUI();
+        drawImageAndFixations();
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function updateParticipantUI() {
+      participantListDiv.innerHTML = "";
+      participants.forEach((p, i) => {
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = p.visible;
+        checkbox.addEventListener("change", () => {
+          p.visible = checkbox.checked;
+          drawImageAndFixations();
+        });
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = p.name;
+        input.addEventListener("input", () => {
+          p.name = input.value;
+        });
+
+        label.appendChild(checkbox);
+        label.appendChild(input);
+        participantListDiv.appendChild(label);
+      });
+    }
+
+    function handleAoi(e) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        try {
+          const json = JSON.parse(event.target.result);
+          aoiList = json.list || [];
+          drawImageAndFixations();
+        } catch (err) {
+          alert("Ошибка при чтении AOI-файла.");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function drawImageAndFixations() {
+      if (!image.src) return;
+      resizeCanvasToDisplaySize();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      const scaleX = canvas.width;
+      const scaleY = canvas.height;
+
+      participants.forEach(p => {
+        if (!p.visible) return;
+        ctx.fillStyle = p.color;
+        p.data.forEach(pt => {
+          if (pt.validity > 0 && pt.x >= 0 && pt.x <= 1 && pt.y >= 0 && pt.y <= 1) {
+            const cx = pt.x * scaleX;
+            const cy = pt.y * scaleY;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        });
+      });
+
+      if (aoiList.length > 0) {
+        aoiList.forEach((aoi) => {
+          const left = aoi.left * canvas.width;
+          const top = aoi.top * canvas.height;
+          const right = aoi.right * canvas.width;
+          const bottom = aoi.bottom * canvas.height;
+          const width = right - left;
+          const height = bottom - top;
+
+          ctx.strokeStyle = "rgba(0,195,0,0.8)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(left, top, width, height);
+
+          if (aoi.name) {
+            ctx.font = "14px sans-serif";
+            ctx.fillStyle = "rgba(0,0,0,0.7)";
+            ctx.fillText(aoi.name, left + 4, top + 16);
+          }
+        });
+      }
+    }
+  </script>
+</body>
 </html>
