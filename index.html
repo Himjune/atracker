@@ -73,6 +73,7 @@
       <h2>2. Загрузка фиксаций (.xlsx)</h2>
       <input type="file" id="dataLoader" accept=".xlsx" />
       <div id="participantList" class="participant-controls"></div>
+      <button onclick="playFixations()">▶ Воспроизвести</button>
     </section>
 
     <section class="block" id="upload-aoi">
@@ -96,6 +97,8 @@
     let image = new Image();
     let participants = [];
     let aoiList = [];
+    let animationFrame = null;
+    let playbackIndex = 0;
 
     document.getElementById("imageLoader").addEventListener("change", handleImage, false);
     document.getElementById("dataLoader").addEventListener("change", handleData, false);
@@ -213,7 +216,7 @@
       reader.readAsText(file);
     }
 
-    function drawImageAndFixations() {
+    function drawImageAndFixations(showCount = Infinity) {
       if (!image.src) return;
       resizeCanvasToDisplaySize();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -225,7 +228,8 @@
       participants.forEach(p => {
         if (!p.visible) return;
         ctx.fillStyle = p.color;
-        p.data.forEach(pt => {
+        const data = p.data.slice(0, showCount);
+        data.forEach(pt => {
           if (pt.validity > 0 && pt.x >= 0 && pt.x <= 1 && pt.y >= 0 && pt.y <= 1) {
             const cx = pt.x * scaleX;
             const cy = pt.y * scaleY;
@@ -256,6 +260,22 @@
           }
         });
       }
+    }
+
+    function playFixations() {
+      cancelAnimationFrame(animationFrame);
+      let maxPoints = Math.max(...participants.map(p => p.data.length));
+      playbackIndex = 0;
+
+      function step() {
+        playbackIndex++;
+        drawImageAndFixations(playbackIndex);
+        if (playbackIndex < maxPoints) {
+          animationFrame = requestAnimationFrame(step);
+        }
+      }
+
+      step();
     }
   </script>
 </body>
