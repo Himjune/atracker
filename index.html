@@ -81,8 +81,17 @@
       <input type="file" id="aoiLoader" accept=".json" />
     </section>
 
+    <section class="block" id="settings-block">
+      <h2>4. Настройки экрана</h2>
+      <label>Диагональ монитора (дюймы): <input type="number" id="screenDiagonal" value="24" step="0.1"></label><br>
+      <label>Соотношение сторон: <input type="text" id="aspectRatio" value="16:9"></label><br>
+      <label>Расстояние от глаз до экрана (см): <input type="number" id="viewDistance" value="60"></label><br>
+      <p id="degPerUnit">Градусы на единицу нормированной координаты: <span id="degResult">—</span></p>
+      <button onclick="calculateVisualAngle()">Вычислить</button>
+    </section>
+
     <section class="block" id="visualization">
-      <h2>4. Визуализация</h2>
+      <h2>5. Визуализация</h2>
       <canvas id="canvas"></canvas>
     </section>
   </div>
@@ -276,6 +285,24 @@
       }
 
       step();
+    }
+
+
+    function calculateVisualAngle() {
+      const diag = parseFloat(document.getElementById("screenDiagonal").value);
+      const ratio = document.getElementById("aspectRatio").value.split(":").map(Number);
+      const dist = parseFloat(document.getElementById("viewDistance").value);
+      if (ratio.length !== 2 || !diag || !dist) return;
+
+      const aspectW = ratio[0];
+      const aspectH = ratio[1];
+      const diagInCm = diag * 2.54;
+
+      const aspectRatio = Math.sqrt(aspectW ** 2 + aspectH ** 2);
+      const widthCm = diagInCm * (aspectW / aspectRatio);
+
+      const degPerUnit = 2 * Math.atan((widthCm / 2) / dist) * (180 / Math.PI);
+      document.getElementById("degResult").textContent = degPerUnit.toFixed(2);
     }
   </script>
 </body>
