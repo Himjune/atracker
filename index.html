@@ -76,6 +76,11 @@
       <button onclick="playFixations()">▶ Воспроизвести</button>
     </section>
 
+    <section class="block" id="fixation-stats">
+      <h2>6. Статистика фиксаций</h2>
+      <ul id="fixationSummary"></ul>
+    </section>
+
     <section class="block" id="upload-aoi">
       <h2>3. Загрузка AOI (.json)</h2>
       <input type="file" id="aoiLoader" accept=".json" />
@@ -97,8 +102,36 @@
   </div>
 
   <script src="./xlsx.full.min.js"></script>
-
   <script>
+    function detectFixations(data, velocityThresholdDegPerSec) {
+      const fixations = [];
+      const degPerUnit = parseFloat(document.getElementById("degResult").textContent);
+      if (!degPerUnit || isNaN(degPerUnit)) return fixations;
+      const threshold = velocityThresholdDegPerSec;
+
+      let fixation = [];
+      for (let i = 1; i < data.length; i++) {
+        const p1 = data[i - 1];
+        const p2 = data[i];
+        const dt = (p2.time - p1.time) // 1000; // время в секундах
+        if (dt <= 0) continue;
+
+        const dx = (p2.x - p1.x) * degPerUnit;
+        const dy = (p2.y - p1.y) * degPerUnit;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const velocity = dist / dt;
+
+        if (velocity < threshold) {
+          fixation.push(p2);
+        } else {
+          if (fixation.length > 1) fixations.push([...fixation]);
+          fixation = [];
+        }
+      }
+      if (fixation.length > 1) fixations.push(fixation);
+      return fixations;
+    }
+
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     const participantListDiv = document.getElementById("participantList");
@@ -180,6 +213,9 @@
         });
 
         updateParticipantUI();
+        participants.forEach(p => {
+          p.fixations = detectFixations(p.data, 70);
+        });
         drawImageAndFixations();
       };
       reader.readAsArrayBuffer(file);
@@ -226,10 +262,12 @@
     }
 
     function drawImageAndFixations(showCount = Infinity) {
+      const stats = [];
       if (!image.src) return;
       resizeCanvasToDisplaySize();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = 1;
 
       const scaleX = canvas.width;
       const scaleY = canvas.height;
@@ -247,7 +285,31 @@
             ctx.fill();
           }
         });
+
+        if (p.fixations && p.fixations.length > 0) {
+          p.fixations.forEach(fix => {
+            const avgX = fix.reduce((s, pt) => s + pt.x, 0) / fix.length;
+            const avgY = fix.reduce((s, pt) => s + pt.y, 0) / fix.length;
+            const cx = avgX * scaleX;
+            const cy = avgY * scaleY;
+            ctx.strokeStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+            ctx.stroke();
+          });
+          stats.push(`${p.name}: ${p.fixations.length} фиксаций`);
+
+          if (pt.validity > 0 && pt.x >= 0 && pt.x <= 1 && pt.y >= 0 && pt.y <= 1) {
+            const cx = pt.x * scaleX;
+            const cy = pt.y * scaleY;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
       });
+      console.log(participants)
+      updateFixationStats(stats);
 
       if (aoiList.length > 0) {
         aoiList.forEach((aoi) => {
@@ -269,6 +331,16 @@
           }
         });
       }
+    }
+
+    function updateFixationStats(stats) {
+      const list = document.getElementById("fixationSummary");
+      list.innerHTML = "";
+      stats.forEach(s => {
+        const li = document.createElement("li");
+        li.textContent = s;
+        list.appendChild(li);
+      });
     }
 
     function playFixations() {
