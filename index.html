@@ -109,6 +109,7 @@
     var degPerUnit = 42.5;
     var velocityThresholdDegPerSec = 70;
     var fixTMin = 0.06;
+    const speedScale = 10.0;
 
     function medFilter(p, c, n) { //[prev, cur, next]
       let buf = ([p, c, n]).sort();
@@ -151,17 +152,14 @@
       degPerUnit = parseFloat(document.getElementById("degResult").textContent);
       const threshold = velocityThresholdDegPerSec;
 
-      ctx.strokeStyle = "green"
-      ctx.beginPath(); // Start a new path
-      ctx.moveTo(0.5,10.5);
-      ctx.lineTo(3000.5,10.5);
-      ctx.stroke(); // Render the path
 
-      let group = [];
+      let fixGroup = [];
       participants.forEach(p => {
-        let isFixation = getGradVelocity(p.filtered[0], p.filtered[1]) < threshold;
+        let isPrevFix = getGradVelocity(p.filtered[0], p.filtered[1]) < threshold;
+        let isFix = false;
         p.fixations = [{data: []}];
         p.saccades = [{data: []}];
+        p.groups = [{isFixation: false, data: []}];
 
         ctx.lineWidth = 1.0;
         for (let i = 0; i < p.data.length-1; i++) { //-1?
@@ -170,39 +168,47 @@
           let vR = getGradVelocity(p.data[i], p.data[i+1]); 
           let velocity = getGradVelocity(p1, p2); 
           
-          if (p1.filtered)
-            ctx.strokeStyle = "blue";
+          if (i%2 == 0)
+            ctx.strokeStyle = "darkred";
           else 
             ctx.strokeStyle = "red";
           ctx.beginPath(); // Start a new path
           ctx.moveTo(i+0.5, 0);
-          ctx.lineTo(i+0.5, velocity/7);
+          ctx.lineTo(i+0.5, velocity/speedScale);
           ctx.closePath();
           ctx.stroke();
 
-          if (velocity < threshold) {   // fix point
-            if (isFixation) {           // was fix and now fix point
-              p.fixations.at(-1).data.push(p1);
-            } else {                    // was sac and now fix point
-              p.fixations.push({data: [p1]});
-              isFixation = true;
-            }
-          } else {                      // sac point
-            if (isFixation) {           // was fix and now sac
-              const lastFix = p.fixations.at(-1)
-              if (lastFix.length>1 && lastFix.data.at(-1).time - lastFix.data[0].time < fixTMin) {  // small fix before sac
-                p.saccades.at(-1).push(...lastFix.data);
-                p.fixations.pop();
-                p.saccades.at(-1).data.push(p1);
-              } else {  // start new sac after valid fix
-                p.saccades.push({data: [p1]});
+          isFix = velocity < threshold;
+          if (isFix) {                  // fix point encountered
+            fixGroup.push(p1);
+          } else {                      // sac point encountered
+            if (fixGroup.length > 1) {  // if we had fix points before cur sac point
+              if (fixGroup.at(-1).time - fixGroup[0].time < fixTMin) {  // small fix, add to prev sac
+                p.groups.at(-1).data.push(...fixGroup);
+                fixGroup = [];
+              } else {                  // fixGroup is correct, add it to groups and start new sac
+                p.groups.push({isFix: true, data: [...fixGroup]});
+                p.groups.push({isFix: false, data: []});
+                fixGroup = [];
               }
-              isFixation = false;
-            } else {                    // was sac and now sac
-              p.saccades.at(-1).data.push(p1);
             }
+            p.groups.at(-1).data.push(p1);
           }
         }
+
+        let left = 0;
+        p.groups.forEach(g => {
+          if (g.isFix)
+            ctx.strokeStyle = "darkblue";
+          else 
+            ctx.strokeStyle = "blue";
+          ctx.beginPath(); // Start a new path
+          ctx.moveTo(left+0.5, threshold/speedScale+0.5);
+          ctx.lineTo(left+g.data.length+0.5, threshold/speedScale+0.5);
+          ctx.closePath();
+          ctx.stroke();
+          left += g.data.length;
+        });
       });
       console.log(participants);
     }
