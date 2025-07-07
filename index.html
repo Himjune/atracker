@@ -123,8 +123,12 @@
         p.filtered = [p.data[0]];
         for (let i = 1; i < p.data.length-1; i++) {
           const point = p.data[i];
-          point.x = medFilter(p.filtered[i-1].x, point.x, p.data[i+1].x);
-          point.y = medFilter(p.filtered[i-1].y, point.y, p.data[i+1].y);
+          let x = medFilter(p.filtered[i-1].x, point.x, p.data[i+1].x);
+          let y = medFilter(p.filtered[i-1].y, point.y, p.data[i+1].y);
+
+          point.filtered = (x!=point.x || y!=point.y);
+          point.x = x;
+          point.y = y;
           p.filtered.push(point);
         }
         p.filtered.push(p.data.at(-1));
@@ -139,7 +143,7 @@
       const dy = (p2.y - p1.y) * degPerUnit;
       const dist = Math.sqrt(dx * dx + dy * dy);
       const velosity = dist / dt;
-      console.log(velosity, p2, p1, dx, dy, dist, dt)
+      //console.log(velosity, p2, p1, dx, dy, dist, dt)
       return velosity;
     }
 
@@ -166,18 +170,13 @@
           let vR = getGradVelocity(p.data[i], p.data[i+1]); 
           let velocity = getGradVelocity(p1, p2); 
           
-          
-          ctx.strokeStyle = "blue";
+          if (p1.filtered)
+            ctx.strokeStyle = "blue";
+          else 
+            ctx.strokeStyle = "red";
           ctx.beginPath(); // Start a new path
           ctx.moveTo(i+0.5, 0);
           ctx.lineTo(i+0.5, velocity/7);
-          ctx.closePath();
-          ctx.stroke();
-
-          ctx.strokeStyle = "red";
-          ctx.beginPath(); // Start a new path
-          ctx.moveTo(i+0.5, 0);
-          ctx.lineTo(i+0.5, vR/7);
           ctx.closePath();
           ctx.stroke();
 
