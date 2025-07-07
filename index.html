@@ -110,6 +110,27 @@
     var velocityThresholdDegPerSec = 70;
     var fixTMin = 0.06;
 
+    function medFilter(p, c, n) { //[prev, cur, next]
+      let buf = ([p, c, n]).sort();
+      if (c>buf[1]) {
+        console.log("yep!", buf);
+        return buf[1];
+      }
+      return c;
+    }
+    function formFiltered() {
+      participants.forEach(p => {
+        p.filtered = [p.data[0]];
+        for (let i = 1; i < p.data.length-1; i++) {
+          const point = p.data[i];
+          point.x = medFilter(p.filtered[i-1].x, point.x, p.data[i+1].x);
+          point.y = medFilter(p.filtered[i-1].y, point.y, p.data[i+1].y);
+          p.filtered.push(point);
+        }
+        p.filtered.push(p.data.at(-1));
+      });
+    }
+
     function getGradVelocity(p1, p2) {
       const dt = (p2.time - p1.time)
       if (dt <= 0) return 0;
@@ -126,20 +147,39 @@
       degPerUnit = parseFloat(document.getElementById("degResult").textContent);
       const threshold = velocityThresholdDegPerSec;
 
+      ctx.strokeStyle = "green"
+      ctx.beginPath(); // Start a new path
+      ctx.moveTo(0.5,10.5);
+      ctx.lineTo(3000.5,10.5);
+      ctx.stroke(); // Render the path
+
       let group = [];
       participants.forEach(p => {
-        let isFixation = getGradVelocity(p.data[0], p.data[1]) < threshold;
+        let isFixation = getGradVelocity(p.filtered[0], p.filtered[1]) < threshold;
         p.fixations = [{data: []}];
         p.saccades = [{data: []}];
+
         ctx.lineWidth = 1.0;
-        ctx.beginPath(); // Start a new path
         for (let i = 0; i < p.data.length-1; i++) { //-1?
-          const p1 = p.data[i];
-          const p2 = p.data[i+1];
+          const p1 = p.filtered[i];
+          const p2 = p.filtered[i+1];
+          let vR = getGradVelocity(p.data[i], p.data[i+1]); 
           let velocity = getGradVelocity(p1, p2); 
-          ctx.moveTo(i,0);
-          ctx.lineTo(i,velocity/7);
-          console.log(velocity);
+          
+          
+          ctx.strokeStyle = "blue";
+          ctx.beginPath(); // Start a new path
+          ctx.moveTo(i+0.5, 0);
+          ctx.lineTo(i+0.5, velocity/7);
+          ctx.closePath();
+          ctx.stroke();
+
+          ctx.strokeStyle = "red";
+          ctx.beginPath(); // Start a new path
+          ctx.moveTo(i+0.5, 0);
+          ctx.lineTo(i+0.5, vR/7);
+          ctx.closePath();
+          ctx.stroke();
 
           if (velocity < threshold) {   // fix point
             if (isFixation) {           // was fix and now fix point
@@ -164,14 +204,7 @@
             }
           }
         }
-        ctx.stroke(); // Render the path
       });
-
-      ctx.strokeStyle = "blue"
-        ctx.beginPath(); // Start a new path
-          ctx.moveTo(0,10);
-          ctx.lineTo(3000,10);
-        ctx.stroke(); // Render the path
       console.log(participants);
     }
 
@@ -252,6 +285,7 @@
             });
           }
         });
+        formFiltered();
         calculateFixationsSaccades();
         updateParticipantUI();
         drawImageAndFixations();
