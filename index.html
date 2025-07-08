@@ -155,9 +155,7 @@
       });
     }
 
-    function getGradVelocity(p1, p2) {
-      const dt = (p2.time - p1.time)
-      if (dt <= 0) return 0;
+    function getGradDistance(p1,p2) {
       if (p1.x == p2.x && p1.y == p2.y) return 0;
 
       const z = realDist;
@@ -172,7 +170,16 @@
       const sd = Math.sqrt(sx*sx+sy*sy+z*z);
       const ed = Math.sqrt(ex*ex+ey*ey+z*z);
       const dist = Math.acos(scalar/sd/ed)*180.0/Math.PI;
-      return dist / dt;
+
+      return dist;
+    }
+    console.log(getGradDistance({x:0, y:0.5}, {x: 0.1, y:0}))
+
+    function getGradVelocity(p1, p2) {
+      const dt = (p2.time - p1.time)
+      if (dt <= 0) return 0;
+      
+      return getGradDistance(p1, p2) / dt;
     }
 
     function centroidData(array) {
@@ -239,9 +246,14 @@
         p.groups.forEach(g => {
           g.centroid = centroidData(g.data);
           g.time = g.data[0].time;
+          g.duration = g.data.at(-1).time - g.time;
+          g.distance = 0;
+          g.straight = getGradDistance(g.data[0], g.data.at(-1));
+
           for (let i = 0; i < g.data.length; i++) { //-1?
+            if (i< g.data.length-1) g.distance += getGradDistance(g.data[i], g.data[i+1]);
+
             const velocity = g.data[i].velocity; 
-          
             if (g.isFix)
               ctx.strokeStyle = "darkred";
             else 
@@ -252,7 +264,6 @@
             ctx.lineTo(left+i+0.5, velocity/speedScale+0.5);
             ctx.closePath();
             ctx.stroke();
-
           };
           
           if (g.isFix) {
@@ -268,7 +279,38 @@
           left += g.data.length;
         });
 
-      
+
+        p.stats = {
+          ttf: 0,
+          fixTime: 0,
+          firstFix: 0,
+          meanFix: 0,
+          allFix: 0,
+          saccadCount: 0,
+          saccadAmpl: 0,
+          saccadAmplCommon: 0,
+          saccadAmplStraight: 0,
+          saccadAmplCommonStraight: 0
+        }
+        let isFirstFixFound = false;
+        p.groups.forEach(g => {
+          if (g.isFix) {
+            if (!isFirstFixFound) {
+              isFirstFixFound = true;
+              p.stats.ttf = g.time;
+              p.stats.firstFix = g.duration;
+            }
+            p.stats.fixTime += g.duration;
+            p.stats.allFix += 1;
+          } else {
+            p.stats.saccadCount += 1;
+            p.stats.saccadAmplCommon += g.distance;
+            p.stats.saccadAmplCommonStraight += g.straight;
+          }
+          p.stats.meanFix = p.stats.allFix / p.stats.allFix;
+          p.stats.saccadAmpl = p.stats.saccadAmplCommon / p.stats.saccadCount;
+          p.stats.saccadAmplStraight = p.stats.saccadAmplCommonStraight / p.stats.saccadCount;
+        });
       });
       console.log(participants);
     }
