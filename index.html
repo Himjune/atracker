@@ -283,10 +283,7 @@
 
 
       participants.forEach(p => {
-        let isPrevFix = getGradVelocity(p.filtered[0], p.filtered[1]) < threshold;
         let isFix = false;
-        p.fixations = [{data: []}];
-        p.saccades = [{data: []}];
         p.groups = [{isFixation: false, data: []}];
 
         ctx.lineWidth = 1.0;
@@ -316,6 +313,7 @@
             p.groups.at(-1).data.push(p1);
           }
         }
+        if (p.groups[0].data.length <= 0) p.groups.shift();
         // we are losing last point here...
 
         let left = 0;
@@ -444,11 +442,11 @@
         let current = null;
         let count = 0;
         participants = [];
-
+        console.log("R",rows);
         rows.forEach(row => {
           if (!row || row.length < 2) return;
           const header = String(row[0]).trim();
-          if (header === "TIME" && row[1] === "Valid") {
+          if (header === "TIME") {
             count++;
             current = {
               name: file.name.replace(/\.xlsx$/, '') + "_P" + count,
@@ -456,6 +454,7 @@
               color: getRandomColor(),
               visible: true
             };
+            console.log(current)
             participants.push(current);
           } else if (current && row.length >= 8) {
             current.data.push({
@@ -470,8 +469,9 @@
             });
           }
         });
+
+        console.log(participants)
         formFiltered();
-        calcGrads();
         calculateFixationsSaccades();
         updateParticipantUI();
         drawImageAndFixations();
