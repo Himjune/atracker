@@ -117,13 +117,11 @@
     function calcGrad(ratio, width) {
       const isLeft = ratio < 0.5;
       const halfAngle = Math.atan(width/2/realDist);
-      console.log("hf", halfAngle*180/Math.PI)
       const isLeftHalf = ratio<0.5;
       const deltaWidth = isLeft ? (0.5-ratio)*width : (ratio-0.5)*width;
       const deltaAngle = Math.atan(deltaWidth/realDist);
       return (isLeft ? halfAngle-deltaAngle : halfAngle+deltaAngle)*180.0/Math.PI;
     }
-
     function calcGrads() {
       participants.forEach(p => {
         for (let index = 0; index < p.data.length; index++) {
