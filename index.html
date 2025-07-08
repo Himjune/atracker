@@ -106,13 +106,31 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
 
-    var degPerUnit = 42.5;
+    var degPerUnit = 42.63;
     var velocityThresholdDegPerSec = 70;
     var fixTMin = 0.06;
     const speedScale = 2.0;
+    var realScrW = 47.6;
+    var realScrH = 26.8;
+    var realDist = 61;
 
-    function calcGrads(array) {
+    function calcGrad(ratio, width) {
+      const isLeft = ratio < 0.5;
+      const halfAngle = Math.atan(width/2/realDist);
+      console.log("hf", halfAngle*180/Math.PI)
+      const isLeftHalf = ratio<0.5;
+      const deltaWidth = isLeft ? (0.5-ratio)*width : (ratio-0.5)*width;
+      const deltaAngle = Math.atan(deltaWidth/realDist);
+      return (isLeft ? halfAngle-deltaAngle : halfAngle+deltaAngle)*180.0/Math.PI;
+    }
 
+    function calcGrads() {
+      participants.forEach(p => {
+        for (let index = 0; index < p.data.length; index++) {
+          p.data[index].gradX = calcGrad(p.data[index].x, realScrW);
+          p.data[index].gradY = calcGrad(p.data[index].y, realScrH);
+        }
+      });
     }
 
     function medFilter(p, c, n) { //[prev, cur, next]
@@ -143,12 +161,10 @@
       const dt = (p2.time - p1.time)
       if (dt <= 0) return 0;
 
-      const dx = (p2.x - p1.x) * degPerUnit;
-      const dy = (p2.y - p1.y) * degPerUnit;
+      const dx = p2.gradX - p1.gradX;
+      const dy = p2.gradY - p1.gradY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      const velosity = dist / dt;
-      //console.log(velosity, p2, p1, dx, dy, dist, dt)
-      return velosity;
+      return dist / dt;
     }
 
     function centroidData(array) {
@@ -187,12 +203,9 @@
         for (let i = 0; i < p.data.length-1; i++) { //-1?  
           const p1 = p.filtered[i];
           const p2 = p.filtered[i+1];
-          let vR = getGradVelocity(p.data[i], p.data[i+1]); 
           let velocity = getGradVelocity(p1, p2); 
           p1.velocity = velocity;
           isFix = velocity < threshold;
-
-          //console.log(isFix, velocity < threshold, velocity, threshold, p1)
 
           if (isFix) {                  // fix point encountered
             fixGroup.push(p1);
@@ -330,6 +343,7 @@
           }
         });
         formFiltered();
+        calcGrads();
         calculateFixationsSaccades();
         updateParticipantUI();
         drawImageAndFixations();
