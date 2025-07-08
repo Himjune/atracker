@@ -109,16 +109,17 @@
         <thead>
           <tr>
             <th>Участник</th>
-            <th>TTF (мс)</th>
-            <th>Время фиксаций</th>
-            <th>Первая фиксация</th>
-            <th>Ср. фиксация</th>
+            <th>TTF (с)</th>
+            <th>Время фиксаций (с)</th>
+            <th>Первая фиксация (с)</th>
+            <th>Ср. фиксация (с)</th>
             <th>Кол-во фиксаций</th>
             <th>Кол-во саккад</th>
-            <th>Саккады общ.</th>
-            <th>Саккады прям.</th>
-            <th>Ср. длина саккады общ.</th>
-            <th>Ср. длина саккады прям.</th>
+            <th>Саккады общ. (град.)</th>
+            <th>Саккады прям. (град.)</th>
+            <th>Ср. длина саккады общ. (град.)</th>
+            <th>Ср. длина саккады прям. (град.)</th>
+            <th>Зрачок (мм?)</th>
           </tr>
         </thead>
         <tbody id="aoiStatsBody"></tbody>
@@ -131,7 +132,7 @@
   <script>
     function exportAoiStatsToXLSX() {
       const headers = [
-        ["Участник", "TTF (мс)", "Время фиксаций", "Первая фиксация", "Ср. фиксация", "Кол-во фиксаций", "Кол-во саккад", "Саккады общ.", "Саккады прям.", "Ср. длина саккады общ.", "Ср. длина саккады прям."]
+        ["Участник", "Время до первой фиксации (с)", "Суммарное длительность фиксаций (с)", "Длительность первой фиксации (с)", "Ср. длительность фиксации", "Кол-во фиксаций", "Кол-во саккад", "Протяженность саккад по всем точкам (град.)", "Протяженность саккад по прямой от первой точки к последней (град.)", "Ср. длина саккады по всем точкам (град.)", "Ср. длина саккады по прямой от первой до последней точки (град.)", "Зрачок (мм?)"]
       ];
       const rows = participants.filter(p => p.stats && p.visible).map(p => {
         const s = p.stats;
@@ -146,7 +147,8 @@
           s.saccadAmplCommon.toFixed(3),
           s.saccadAmplCommonStraight.toFixed(3),
           s.saccadAmpl.toFixed(3),
-          s.saccadAmplStraight.toFixed(3)
+          s.saccadAmplStraight.toFixed(3),
+          s.pupil.toFixed(3)
         ];
       });
       const wb = XLSX.utils.book_new();
@@ -271,6 +273,7 @@
           <td>${s.saccadAmplCommonStraight.toFixed(3)}</td>
           <td>${s.saccadAmpl.toFixed(3)}</td>
           <td>${s.saccadAmplStraight.toFixed(3)}</td>
+          <td>${s.pupil.toFixed(3)}</td>
         `;
         tbody.appendChild(row);
       });
@@ -323,9 +326,11 @@
           g.duration = g.data.at(-1).time - g.time;
           g.distance = 0;
           g.straight = getGradDistance(g.data[0], g.data.at(-1));
+          g.pupil = 0;
 
           for (let i = 0; i < g.data.length; i++) { //-1?
             if (i< g.data.length-1) g.distance += getGradDistance(g.data[i], g.data[i+1]);
+            g.pupil += (g.data[i].lp + g.data[i].rp) / 2.0;
 
             const velocity = g.data[i].velocity; 
             if (g.isFix)
@@ -339,6 +344,7 @@
             ctx.closePath();
             ctx.stroke();
           };
+          g.pupil /= g.data.length;
           
           if (g.isFix) {
             ctx.strokeStyle = "darkblue";
@@ -364,7 +370,8 @@
           saccadAmpl: 0,
           saccadAmplCommon: 0,
           saccadAmplStraight: 0,
-          saccadAmplCommonStraight: 0
+          saccadAmplCommonStraight: 0,
+          pupil: 0
         }
         let isFirstFixFound = false;
         p.groups.forEach(g => {
@@ -381,12 +388,15 @@
             p.stats.saccadAmplCommon += g.distance;
             p.stats.saccadAmplCommonStraight += g.straight;
           }
-          p.stats.meanFix = p.stats.fixTime / p.stats.allFix;
-          p.stats.saccadAmpl = p.stats.saccadAmplCommon / p.stats.saccadCount;
-          p.stats.saccadAmplStraight = p.stats.saccadAmplCommonStraight / p.stats.saccadCount;
+
+          p.stats.pupil += g.pupil;
         });
+
+        p.stats.meanFix = p.stats.fixTime / p.stats.allFix;
+        p.stats.saccadAmpl = p.stats.saccadAmplCommon / p.stats.saccadCount;
+        p.stats.saccadAmplStraight = p.stats.saccadAmplCommonStraight / p.stats.saccadCount;
+        p.stats.pupil /= p.groups.length;
       });
-      console.log(participants);
       updateAoiStatsTable();
 
     }
@@ -442,7 +452,6 @@
         let current = null;
         let count = 0;
         participants = [];
-        console.log("R",rows);
         rows.forEach(row => {
           if (!row || row.length < 2) return;
           const header = String(row[0]).trim();
@@ -454,7 +463,6 @@
               color: getRandomColor(),
               visible: true
             };
-            console.log(current)
             participants.push(current);
           } else if (current && row.length >= 8) {
             current.data.push({
