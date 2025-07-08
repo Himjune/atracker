@@ -99,6 +99,26 @@
       <h2>5. Визуализация</h2>
       <canvas id="canvas"></canvas>
     </section>
+    <section class="block" id="aoi-stats">
+      <h2>7. Таблица анализа по AOI</h2>
+      <table border="1" id="aoiStatsTable">
+        <thead>
+          <tr>
+            <th>Участник</th>
+            <th>TTF (мс)</th>
+            <th>Время фиксаций</th>
+            <th>Первая фиксация</th>
+            <th>Ср. фиксация</th>
+            <th>Кол-во фиксаций</th>
+            <th>Кол-во саккад</th>
+            <th>Саккады общ./прям.</th>
+            <th>Ср. длина саккады общ./прям.</th>
+          </tr>
+        </thead>
+        <tbody id="aoiStatsBody"></tbody>
+      </table>
+    </section>
+
   </div>
 
   <script src="./xlsx.full.min.js"></script>
@@ -200,6 +220,29 @@
       }
       return res;
     }
+
+    function updateAoiStatsTable() {
+      const tbody = document.getElementById("aoiStatsBody");
+      tbody.innerHTML = "";
+      participants.forEach(p => {
+        if (!p.visible || !p.stats) return;
+        const s = p.stats;
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${p.name}</td>
+          <td>${s.ttf.toFixed(0)}</td>
+          <td>${s.fixTime.toFixed(5)}</td>
+          <td>${s.firstFix.toFixed(5)}</td>
+          <td>${s.meanFix.toFixed(5)}</td>
+          <td>${s.allFix}</td>
+          <td>${s.saccadCount}</td>
+          <td>${s.saccadAmplCommon.toFixed(3)} / ${s.saccadAmplCommonStraight.toFixed(3)}</td>
+          <td>${s.saccadAmpl.toFixed(3)} / ${s.saccadAmplStraight.toFixed(3)}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
 
     function calculateFixationsSaccades() {
       degPerUnit = parseFloat(document.getElementById("degResult").textContent);
@@ -307,12 +350,14 @@
             p.stats.saccadAmplCommon += g.distance;
             p.stats.saccadAmplCommonStraight += g.straight;
           }
-          p.stats.meanFix = p.stats.allFix / p.stats.allFix;
+          p.stats.meanFix = p.stats.fixTime / p.stats.allFix;
           p.stats.saccadAmpl = p.stats.saccadAmplCommon / p.stats.saccadCount;
           p.stats.saccadAmplStraight = p.stats.saccadAmplCommonStraight / p.stats.saccadCount;
         });
       });
       console.log(participants);
+      updateAoiStatsTable();
+
     }
 
     const participantListDiv = document.getElementById("participantList");
@@ -467,6 +512,7 @@
         });
 
       });
+
       updateFixationStats(stats);
 
       if (aoiList.length > 0) {
