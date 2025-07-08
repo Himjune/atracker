@@ -158,10 +158,20 @@
     function getGradVelocity(p1, p2) {
       const dt = (p2.time - p1.time)
       if (dt <= 0) return 0;
+      if (p1.x == p2.x && p1.y == p2.y) return 0;
 
-      const dx = p2.gradX - p1.gradX;
-      const dy = p2.gradY - p1.gradY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const z = realDist;
+      
+      const sx = (-0.5+p1.x)*realScrW;
+      const sy = (0.5-p1.y)*realScrH;
+
+      const ex = (-0.5+p2.x)*realScrW;
+      const ey = (0.5-p2.y)*realScrH;
+
+      const scalar = sx*ex+sy*ey+z*z;
+      const sd = Math.sqrt(sx*sx+sy*sy+z*z);
+      const ed = Math.sqrt(ex*ex+ey*ey+z*z);
+      const dist = Math.acos(scalar/sd/ed)*180.0/Math.PI;
       return dist / dt;
     }
 
