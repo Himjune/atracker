@@ -86,6 +86,10 @@
       <input type="file" id="aoiLoader" accept=".json" />
     </section>
 
+    <section class="block">
+      <button onclick="exportAoiStatsToXLSX()">💾 Скачать таблицу анализа (.xlsx)</button>
+    </section>
+
     <section class="block" id="settings-block">
       <h2>4. Настройки экрана</h2>
       <label>Диагональ монитора (дюймы): <input type="number" id="screenDiagonal" value="24" step="0.1"></label><br>
@@ -111,8 +115,10 @@
             <th>Ср. фиксация</th>
             <th>Кол-во фиксаций</th>
             <th>Кол-во саккад</th>
-            <th>Саккады общ./прям.</th>
-            <th>Ср. длина саккады общ./прям.</th>
+            <th>Саккады общ.</th>
+            <th>Саккады прям.</th>
+            <th>Ср. длина саккады общ.</th>
+            <th>Ср. длина саккады прям.</th>
           </tr>
         </thead>
         <tbody id="aoiStatsBody"></tbody>
@@ -123,6 +129,31 @@
 
   <script src="./xlsx.full.min.js"></script>
   <script>
+    function exportAoiStatsToXLSX() {
+      const headers = [
+        ["Участник", "TTF (мс)", "Время фиксаций", "Первая фиксация", "Ср. фиксация", "Кол-во фиксаций", "Кол-во саккад", "Саккады общ.", "Саккады прям.", "Ср. длина саккады общ.", "Ср. длина саккады прям."]
+      ];
+      const rows = participants.filter(p => p.stats && p.visible).map(p => {
+        const s = p.stats;
+        return [
+          p.name,
+          s.ttf,
+          s.fixTime,
+          s.firstFix,
+          s.meanFix,
+          s.allFix,
+          s.saccadCount,
+          s.saccadAmplCommon.toFixed(3),
+          s.saccadAmplCommonStraight.toFixed(3),
+          s.saccadAmpl.toFixed(3),
+          s.saccadAmplStraight.toFixed(3)
+        ];
+      });
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(headers.concat(rows));
+      XLSX.utils.book_append_sheet(wb, ws, "AOI Stats");
+      XLSX.writeFile(wb, "aoi_stats.xlsx");
+    }
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
 
@@ -236,8 +267,10 @@
           <td>${s.meanFix.toFixed(5)}</td>
           <td>${s.allFix}</td>
           <td>${s.saccadCount}</td>
-          <td>${s.saccadAmplCommon.toFixed(3)} / ${s.saccadAmplCommonStraight.toFixed(3)}</td>
-          <td>${s.saccadAmpl.toFixed(3)} / ${s.saccadAmplStraight.toFixed(3)}</td>
+          <td>${s.saccadAmplCommon.toFixed(3)}</td>
+          <td>${s.saccadAmplCommonStraight.toFixed(3)}</td>
+          <td>${s.saccadAmpl.toFixed(3)}</td>
+          <td>${s.saccadAmplStraight.toFixed(3)}</td>
         `;
         tbody.appendChild(row);
       });
