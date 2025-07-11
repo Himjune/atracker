@@ -198,6 +198,7 @@
           const point = p.data[i];
           let x = medFilter(p.filtered[i-1].x, point.x, p.data[i+1].x);
           let y = medFilter(p.filtered[i-1].y, point.y, p.data[i+1].y);
+          let z = medFilter(p.filtered[i-1].z, point.z, p.data[i+1].z);
 
           point.filtered = (x!=point.x || y!=point.y);
           point.x = x;
@@ -208,10 +209,22 @@
       });
     }
 
+    function getModule(point) {
+      return Math.sqrt(point.x*point.x+point.y*point.y+point.z*point.z);
+    }
+    function scalarAngle(p1, p2) {
+      const scalar = p1.x*p2.x + p1.y*p2.y + p1.z*p2.z;
+      const m1 = getModule(p1);
+      const m2 = getModule(p2);
+      return Math.acos(scalar/m1/m2);
+    }
+
     function getGradDistance(p1,p2) {
       if (p1.x == p2.x && p1.y == p2.y) return 0;
 
       const z = realDist;
+      const z1 = p1.z*100;
+      const z2 = p2.z*100;
       
       const sx = (-0.5+p1.x)*realScrW;
       const sy = (0.5-p1.y)*realScrH;
@@ -219,14 +232,16 @@
       const ex = (-0.5+p2.x)*realScrW;
       const ey = (0.5-p2.y)*realScrH;
 
-      const scalar = sx*ex+sy*ey+z*z;
-      const sd = Math.sqrt(sx*sx+sy*sy+z*z);
-      const ed = Math.sqrt(ex*ex+ey*ey+z*z);
+      const scalar = sx*ex+sy*ey+z1*z2;
+      const sd = Math.sqrt(sx*sx+sy*sy+z1*z2);
+      const ed = Math.sqrt(ex*ex+ey*ey+z1*z2);
+
       const dist = Math.acos(scalar/sd/ed)*180.0/Math.PI;
+      //const dist = scalarAngle(p1, p2)*180.0/Math.PI;
 
       return dist;
     }
-    console.log(getGradDistance({x:0, y:0.5}, {x: 0.1, y:0}))
+    console.log(getGradDistance({x:0, y:0.5, z: 0.60275}, {x: 0.1, y:0, z: 0.60275}))
 
     function getGradVelocity(p1, p2) {
       const dt = (p2.time - p1.time)
