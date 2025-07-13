@@ -251,19 +251,21 @@
     }
 
     function centroidData(array) {
-      const res = {x: 0, y: 0, r: 0};
+      const res = {x: 0, y: 0, z: 0, r: 0};
       for (let index = 0; index < array.length; index++) {
         const element = array[index];
         res.x += element.x;
         res.y += element.y;
+        res.z += element.z;
       }
       res.x /= array.length;
       res.y /= array.length;
+      res.z /= array.length;
 
       
       for (let index = 0; index < array.length; index++) {
         const element = array[index];
-        const rad = Math.sqrt(res.x*res.x+res.y+res.y);
+        const rad = Math.sqrt(res.x*res.x+res.y*res.y);
         if (rad > res.r) res.r = rad;
       }
       return res;
@@ -294,6 +296,62 @@
       });
     }
 
+    function formGroup(g) {
+      g.centroid = centroidData(g.data);
+      g.time = g.data[0].time;
+      g.duration = g.data.at(-1).time - g.time;
+      g.distance = 0;
+      g.straight = getGradDistance(g.data[0], g.data.at(-1));
+      g.pupil = 0;
+
+      for (let i = 0; i < g.data.length; i++) { //-1?
+        if (i< g.data.length-1) g.distance += getGradDistance(g.data[i], g.data[i+1]);
+        g.pupil += (g.data[i].lp + g.data[i].rp) / 2.0;
+      };
+      g.pupil /= g.data.length;
+    }
+    
+    function calcStats(){
+      participants.forEach(p => {
+        p.stats = {
+            ttf: 0,
+            fixTime: 0,
+            firstFix: 0,
+            meanFix: 0,
+            allFix: 0,
+            saccadCount: 0,
+            saccadAmpl: 0,
+            saccadAmplCommon: 0,
+            saccadAmplStraight: 0,
+            saccadAmplCommonStraight: 0,
+            pupil: 0
+          }
+        let isFirstFixFound = false;
+        p.groups.forEach(g => {
+          if (g.isFix) {
+            if (!isFirstFixFound) {
+              isFirstFixFound = true;
+              p.stats.ttf = g.time;
+              p.stats.firstFix = g.duration;
+            }
+            p.stats.fixTime += g.duration;
+            p.stats.allFix += 1;
+          } else {
+            p.stats.saccadCount += 1;
+            p.stats.saccadAmplCommon += g.distance;
+            p.stats.saccadAmplCommonStraight += g.straight;
+          }
+
+          p.stats.pupil += g.pupil;
+        });
+
+        p.stats.meanFix = p.stats.fixTime / p.stats.allFix;
+        p.stats.saccadAmpl = p.stats.saccadAmplCommon / p.stats.saccadCount;
+        p.stats.saccadAmplStraight = p.stats.saccadAmplCommonStraight / p.stats.saccadCount;
+        p.stats.pupil /= p.groups.length;
+      });
+      updateAoiStatsTable();
+    }
 
     function calculateFixationsSaccades() {
       degPerUnit = parseFloat(document.getElementById("degResult").textContent);
@@ -334,85 +392,36 @@
         if (p.groups[0].data.length <= 0) p.groups.shift();
         // we are losing last point here...
 
-        let left = 0;
         p.groups.forEach(g => {
-          g.centroid = centroidData(g.data);
-          g.time = g.data[0].time;
-          g.duration = g.data.at(-1).time - g.time;
-          g.distance = 0;
-          g.straight = getGradDistance(g.data[0], g.data.at(-1));
-          g.pupil = 0;
-
-          for (let i = 0; i < g.data.length; i++) { //-1?
-            if (i< g.data.length-1) g.distance += getGradDistance(g.data[i], g.data[i+1]);
-            g.pupil += (g.data[i].lp + g.data[i].rp) / 2.0;
-
-            const velocity = g.data[i].velocity; 
-            if (g.isFix)
-              ctx.strokeStyle = "darkred";
-            else 
-              ctx.strokeStyle = "red";
-            ctx.beginPath(); // Start a new path
-            ctx.moveTo(left+i+0.5, 0);
-            ctx.lineTo(left+i+0.5, 2.5);
-            ctx.lineTo(left+i+0.5, velocity/speedScale+0.5);
-            ctx.closePath();
-            ctx.stroke();
-          };
-          g.pupil /= g.data.length;
-          
-          if (g.isFix) {
-            ctx.strokeStyle = "darkblue";
-          } else {
-            ctx.strokeStyle = "blue";
-          }
-          ctx.beginPath(); // Start a new path
-          ctx.moveTo(left+0.5, threshold/speedScale+0.5);
-          ctx.lineTo(left+g.data.length+0.5, threshold/speedScale+0.5);
-          ctx.closePath();
-          ctx.stroke();
-          left += g.data.length;
+          formGroup(g);
         });
 
+        let checkIdx = 0;
+        let cnt = 0;
+        while (checkIdx < p.groups.length){
+          const checkGroup = p.groups[checkIdx];
+          if (!checkGroup.isFix) {checkIdx++; continue;}
 
-        p.stats = {
-          ttf: 0,
-          fixTime: 0,
-          firstFix: 0,
-          meanFix: 0,
-          allFix: 0,
-          saccadCount: 0,
-          saccadAmpl: 0,
-          saccadAmplCommon: 0,
-          saccadAmplStraight: 0,
-          saccadAmplCommonStraight: 0,
-          pupil: 0
-        }
-        let isFirstFixFound = false;
-        p.groups.forEach(g => {
-          if (g.isFix) {
-            if (!isFirstFixFound) {
-              isFirstFixFound = true;
-              p.stats.ttf = g.time;
-              p.stats.firstFix = g.duration;
+          let nextIdx = checkIdx+1;
+          while (nextIdx < p.groups.length && !p.groups[nextIdx].isFix) nextIdx++;
+          if (nextIdx>=p.groups.length) break;
+          const compareGroup = p.groups[nextIdx]
+
+          const dist = getGradDistance(checkGroup.centroid, compareGroup.centroid);
+          if (dist < 0.5 || Math.abs(compareGroup.time - checkGroup.data.at(-1)) < 0.06) {
+            cnt++;
+            for (let index = checkIdx+1; index <= nextIdx; index++) {
+              checkGroup.data.push(...p.groups[index].data);
             }
-            p.stats.fixTime += g.duration;
-            p.stats.allFix += 1;
-          } else {
-            p.stats.saccadCount += 1;
-            p.stats.saccadAmplCommon += g.distance;
-            p.stats.saccadAmplCommonStraight += g.straight;
+            p.groups.splice(checkIdx+1,nextIdx-checkIdx);
+            formGroup(checkGroup);
+            continue;
           }
-
-          p.stats.pupil += g.pupil;
-        });
-
-        p.stats.meanFix = p.stats.fixTime / p.stats.allFix;
-        p.stats.saccadAmpl = p.stats.saccadAmplCommon / p.stats.saccadCount;
-        p.stats.saccadAmplStraight = p.stats.saccadAmplCommonStraight / p.stats.saccadCount;
-        p.stats.pupil /= p.groups.length;
+          
+          checkIdx++;
+        }
+        console.log(cnt, p.groups);
       });
-      updateAoiStatsTable();
 
     }
 
@@ -496,6 +505,7 @@
         console.log(participants)
         formFiltered();
         calculateFixationsSaccades();
+        calcStats();
         updateParticipantUI();
         drawImageAndFixations();
       };
