@@ -137,29 +137,32 @@
   <script>
     function exportAoiStatsToXLSX() {
       const headers = [
-        ["Участник", "Время до первой фиксации (с)", "Суммарное длительность фиксаций (с)", "Длительность первой фиксации (с)", "Ср. длительность фиксации", "Кол-во фиксаций", "Кол-во саккад", "Протяженность саккад по всем точкам (град.)", "Протяженность саккад по прямой от первой точки к последней (град.)", "Ср. длина саккады по всем точкам (град.)", "Ср. длина саккады по прямой от первой до последней точки (град.)", "Зрачок (мм?)"]
+        ["Участник", "Эксперимент", "Стимул", "Имя в эксперименте", "Время до первой фиксации (с)", "Суммарное длительность фиксаций (с)", "Длительность первой фиксации (с)", "Ср. длительность фиксации", "Кол-во фиксаций", "Кол-во саккад", "Протяженность саккад по всем точкам (град.)", "Протяженность саккад по прямой от первой точки к последней (град.)", "Ср. длина саккады по всем точкам (град.)", "Ср. длина саккады по прямой от первой до последней точки (град.)", "Зрачок (мм?)"]
       ];
       const rows = participants.filter(p => p.stats && p.visible).map(p => {
         const s = p.stats;
         return [
           p.name,
+          p.fileExperiment,
+          p.fileStimul,
+          p.prefileInExpName,
           s.ttf,
           s.fixTime,
           s.firstFix,
           s.meanFix,
           s.allFix,
           s.saccadCount,
-          s.saccadAmplCommon.toFixed(3),
-          s.saccadAmplCommonStraight.toFixed(3),
-          s.saccadAmpl.toFixed(3),
-          s.saccadAmplStraight.toFixed(3),
-          s.pupil.toFixed(3)
+          s.saccadAmplCommon,
+          s.saccadAmplCommonStraight,
+          s.saccadAmpl,
+          s.saccadAmplStraight,
+          s.pupil
         ];
       });
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet(headers.concat(rows));
       XLSX.utils.book_append_sheet(wb, ws, "AOI Stats");
-      XLSX.writeFile(wb, "aoi_stats.xlsx");
+      XLSX.writeFile(wb, dataFileName+"_aoi_stats.xlsx");
     }
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
@@ -285,17 +288,17 @@
         const row = document.createElement("tr");
         row.innerHTML = `
           <td>${p.name}</td>
-          <td>${s.ttf.toFixed(0)}</td>
-          <td>${s.fixTime.toFixed(5)}</td>
-          <td>${s.firstFix.toFixed(5)}</td>
-          <td>${s.meanFix.toFixed(5)}</td>
+          <td>${s.ttf}</td>
+          <td>${s.fixTime}</td>
+          <td>${s.firstFix}</td>
+          <td>${s.meanFix}</td>
           <td>${s.allFix}</td>
           <td>${s.saccadCount}</td>
-          <td>${s.saccadAmplCommon.toFixed(3)}</td>
-          <td>${s.saccadAmplCommonStraight.toFixed(3)}</td>
-          <td>${s.saccadAmpl.toFixed(3)}</td>
-          <td>${s.saccadAmplStraight.toFixed(3)}</td>
-          <td>${s.pupil.toFixed(3)}</td>
+          <td>${s.saccadAmplCommon}</td>
+          <td>${s.saccadAmplCommonStraight}</td>
+          <td>${s.saccadAmpl}</td>
+          <td>${s.saccadAmplStraight}</td>
+          <td>${s.pupil}</td>
         `;
         tbody.appendChild(row);
       });
@@ -485,16 +488,18 @@
         let count = 0;
         participants = [];
         rows.forEach(row => {
+          count++;
           if (!row || row.length < 5 || !DATE_REGEX.test(row[4])) return;
-          preData[row[4]] = {
-            date: row[4],
+          const date = row[4].trim();
+          preData[date] = {
+            date: date,
             fileExperiment: row[0],
             fileStimul: row[1],
             fileRealName: row[2],
             fileInExpName: row[3]
           }
         });
-        console.log(preData);
+        console.log(count, preData);
         updateParticipantsPredata();
         updateParticipantUI();
       };
@@ -506,7 +511,7 @@
       const converter = {
         'sch': 'щ',
 
-        'yo': 'ё', 'zh': 'ж', 'ch': 'ч', 'sh': 'ш', 'yu': 'ю', 'ya': 'я',
+        'yo': 'ё', 'zh': 'ж', 'ch': 'ч', 'sh': 'ш', 'yu': 'ю', 'ya': 'я', 'ts': 'ц',
 
         'a': 'а', 'b': 'б', 'v': 'в', 'g': 'г', 'd': 'д',
         'e': 'е', 'z': 'з', 'i': 'и', 'y': 'й', 'k': 'к',
@@ -528,7 +533,7 @@
         const preDataObj = preData[p.date];
         if (typeof(preDataObj) !== "undefined") {
           p.predata = preDataObj;
-          p.prefileInExpName = preDataObj.prefileInExpName;
+          p.prefileInExpName = preDataObj.fileInExpName;
           p.name = typeof(preDataObj.fileRealName) !== 'undefined' && preDataObj.fileRealName.length > 0 ?
             preDataObj.fileRealName : translit(preDataObj.fileInExpName)
 
@@ -589,6 +594,7 @@
       reader.readAsArrayBuffer(file);
     }
 
+    let dataFileName = "";
     function handleDataCSV(e) {
       const file = event.target.files[0];
       if (file) {
@@ -605,12 +611,13 @@
                 if (line.search(DATE_REGEX) == 0) {
                   count++;
                   const fileParts = file.name.replace(/\.csv$/, '').split('_')
+                  dataFileName = file.name.replace(/\.csv$/, '');
                   current = {
-                    fileName: file.name.replace(/\.csv$/, '') + "_P" + count,
+                    fileName: dataFileName + "_P" + count + "_" + line.trim(),
                     filePos: count,
                     fileExperiment: fileParts[0],
                     fileStimul: fileParts[1],
-                    name: file.name.replace(/\.csv$/, '') + "_P" + count,
+                    name: dataFileName + "_P" + count + "_" + line.trim(),
                     data: [],
                     color: getRandomColor(),
                     visible: true,
