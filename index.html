@@ -69,39 +69,30 @@
       <input type="file" id="imageLoader" accept="image/*" />
     </section>
 
+    <section class="block" id="upload-pre-data">
+      <h2>2. Загрузка прединформации (.xlsx)</h2>
+      <input type="file" id="dataLoader" accept=".xlsx" />
+    </section>
+
     <section class="block" id="upload-data">
-      <h2>2. Загрузка фиксаций (.csv)</h2>
+      <h2>3. Загрузка фиксаций (.csv)</h2>
       <input type="file" id="dataLoader" accept=".csv" />
       <div id="participantList" class="participant-controls"></div>
       <button onclick="playFixations()">▶ Воспроизвести</button>
     </section>
 
     <section class="block" id="fixation-stats">
-      <h2>6. Статистика фиксаций</h2>
+      <h2>4. Статистика фиксаций</h2>
       <ul id="fixationSummary"></ul>
     </section>
 
     <section class="block" id="upload-aoi">
-      <h2>3. Загрузка AOI (.json)</h2>
+      <h2>5. Загрузка AOI (.json)</h2>
       <input type="file" id="aoiLoader" accept=".json" />
     </section>
 
     <section class="block">
       <button onclick="exportAoiStatsToXLSX()">💾 Скачать таблицу анализа (.xlsx)</button>
-    </section>
-
-    <section class="block" id="settings-block">
-      <h2>4. Настройки экрана</h2>
-      <label>Диагональ монитора (дюймы): <input type="number" id="screenDiagonal" value="24" step="0.1"></label><br>
-      <label>Соотношение сторон: <input type="text" id="aspectRatio" value="16:9"></label><br>
-      <label>Расстояние от глаз до экрана (см): <input type="number" id="viewDistance" value="60"></label><br>
-      <p id="degPerUnit">Градусы на единицу нормированной координаты: <span id="degResult">42.63</span></p>
-      <button onclick="calculateVisualAngle()">Вычислить</button>
-    </section>
-
-    <section class="block" id="visualization">
-      <h2>5. Визуализация</h2>
-      <canvas id="canvas"></canvas>
     </section>
     <section class="block" id="aoi-stats">
       <h2>7. Таблица анализа по AOI</h2>
@@ -124,6 +115,20 @@
         </thead>
         <tbody id="aoiStatsBody"></tbody>
       </table>
+    </section>
+
+    <section class="block" id="settings-block">
+      <h2>4. Настройки экрана</h2>
+      <label>Диагональ монитора (дюймы): <input type="number" id="screenDiagonal" value="24" step="0.1"></label><br>
+      <label>Соотношение сторон: <input type="text" id="aspectRatio" value="16:9"></label><br>
+      <label>Расстояние от глаз до экрана (см): <input type="number" id="viewDistance" value="60"></label><br>
+      <p id="degPerUnit">Градусы на единицу нормированной координаты: <span id="degResult">42.63</span></p>
+      <button onclick="calculateVisualAngle()">Вычислить</button>
+    </section>
+
+    <section class="block" id="visualization">
+      <h2>5. Визуализация</h2>
+      <canvas id="canvas"></canvas>
     </section>
 
   </div>
