@@ -71,7 +71,7 @@
 
     <section class="block" id="upload-pre-data">
       <h2>2. Загрузка прединформации (.xlsx)</h2>
-      <input type="file" id="dataLoader" accept=".xlsx" />
+      <input type="file" id="predataLoader" accept=".xlsx" />
     </section>
 
     <section class="block" id="upload-data">
@@ -84,11 +84,6 @@
     <section class="block" id="fixation-stats">
       <h2>4. Статистика фиксаций</h2>
       <ul id="fixationSummary"></ul>
-    </section>
-
-    <section class="block" id="upload-aoi">
-      <h2>5. Загрузка AOI (.json)</h2>
-      <input type="file" id="aoiLoader" accept=".json" />
     </section>
 
     <section class="block">
@@ -115,6 +110,11 @@
         </thead>
         <tbody id="aoiStatsBody"></tbody>
       </table>
+    </section>
+
+    <section class="block" id="upload-aoi">
+      <h2>5. Загрузка AOI (.json)</h2>
+      <input type="file" id="aoiLoader" accept=".json" />
     </section>
 
     <section class="block" id="settings-block">
@@ -434,11 +434,13 @@
 
     let image = new Image();
     let participants = [];
+    const preData = {};
     let aoiList = [];
     let animationFrame = null;
     let playbackIndex = 0;
 
     document.getElementById("imageLoader").addEventListener("change", handleImage, false);
+    document.getElementById("predataLoader").addEventListener("change", handlePreDataXLSX, false);
     document.getElementById("dataLoader").addEventListener("change", handleDataCSV, false);
     document.getElementById("aoiLoader").addEventListener("change", handleAoi, false);
     window.addEventListener("resize", drawImageAndFixations);
@@ -466,6 +468,75 @@
         image.src = event.target.result;
       };
       reader.readAsDataURL(e.target.files[0]);
+    }
+
+    const DATE_REGEX = /\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}/
+    function handlePreDataXLSX(e) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = function (evt) {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[1];
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+        let current = null;
+        let count = 0;
+        participants = [];
+        rows.forEach(row => {
+          if (!row || row.length < 5 || !DATE_REGEX.test(row[4])) return;
+          preData[row[4]] = {
+            date: row[4],
+            fileExperiment: row[0],
+            fileStimul: row[1],
+            fileRealName: row[2],
+            fileInExpName: row[3]
+          }
+        });
+        console.log(preData);
+        updateParticipantsPredata();
+        updateParticipantUI();
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function translit(word) {
+      word = word.toLowerCase();
+      const converter = {
+        'sch': 'щ',
+
+        'yo': 'ё', 'zh': 'ж', 'ch': 'ч', 'sh': 'ш', 'yu': 'ю', 'ya': 'я',
+
+        'a': 'а', 'b': 'б', 'v': 'в', 'g': 'г', 'd': 'д',
+        'e': 'е', 'z': 'з', 'i': 'и', 'y': 'й', 'k': 'к',
+        'l': 'л', 'm': 'м', 'n': 'н', 'o': 'о', 'p': 'п',
+        'r': 'р', 's': 'с', 't': 'т', 'u': 'у', 'f': 'ф',
+        'h': 'х', 'c': 'ц', 'y': 'ы',
+      };
+
+      for (const [key, value] of Object.entries(converter)) {
+        word = word.replaceAll(key, value);
+      }
+
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    }
+
+
+    function updateParticipantsPredata() {
+      participants.forEach(p => {
+        const preDataObj = preData[p.date];
+        if (typeof(preDataObj) !== "undefined") {
+          p.predata = preDataObj;
+          p.prefileInExpName = preDataObj.prefileInExpName;
+          p.name = typeof(preDataObj.fileRealName) !== 'undefined' && preDataObj.fileRealName.length > 0 ?
+            preDataObj.fileRealName : translit(preDataObj.fileInExpName)
+
+          if (p.fileExperiment !== preDataObj.fileExperiment || p.fileStimul !== preDataObj.fileStimul) p.predataCorrupt = true;
+        } else {
+          p.predata = null;
+        }
+      });
     }
 
     function handleDataXLSX(e) {
@@ -507,6 +578,7 @@
           }
         });
 
+        updateParticipantsPredata();
         console.log(participants)
         formFiltered();
         calculateFixationsSaccades();
@@ -530,7 +602,7 @@
 
               while(typeof(content[0]) !== "undefined") {
                 const line = content.shift();
-                if (line.search(/\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}/) == 0) {
+                if (line.search(DATE_REGEX) == 0) {
                   count++;
                   const fileParts = file.name.replace(/\.csv$/, '').split('_')
                   current = {
@@ -561,6 +633,7 @@
                 }
               }
 
+              updateParticipantsPredata();
               console.log(participants)
               formFiltered();
               calculateFixationsSaccades();
