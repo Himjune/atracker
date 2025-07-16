@@ -70,8 +70,8 @@
     </section>
 
     <section class="block" id="upload-data">
-      <h2>2. Загрузка фиксаций (.xlsx)</h2>
-      <input type="file" id="dataLoader" accept=".xlsx" />
+      <h2>2. Загрузка фиксаций (.csv)</h2>
+      <input type="file" id="dataLoader" accept=".csv" />
       <div id="participantList" class="participant-controls"></div>
       <button onclick="playFixations()">▶ Воспроизвести</button>
     </section>
@@ -434,7 +434,7 @@
     let playbackIndex = 0;
 
     document.getElementById("imageLoader").addEventListener("change", handleImage, false);
-    document.getElementById("dataLoader").addEventListener("change", handleData, false);
+    document.getElementById("dataLoader").addEventListener("change", handleDataCSV, false);
     document.getElementById("aoiLoader").addEventListener("change", handleAoi, false);
     window.addEventListener("resize", drawImageAndFixations);
 
@@ -463,7 +463,7 @@
       reader.readAsDataURL(e.target.files[0]);
     }
 
-    function handleData(e) {
+    function handleDataXLSX(e) {
       const file = e.target.files[0];
       const reader = new FileReader();
       reader.onload = function (evt) {
@@ -510,6 +510,62 @@
         drawImageAndFixations();
       };
       reader.readAsArrayBuffer(file);
+    }
+
+    function handleDataCSV(e) {
+      const file = event.target.files[0];
+      if (file) {
+          const reader = new FileReader();
+          reader.onload = function(e) {
+              const content = e.target.result.split('\n');
+              
+              let current = null;
+              let count = 0;
+              participants = [];
+
+              while(typeof(content[0]) !== "undefined") {
+                const line = content.shift();
+                if (line.search(/\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}/) == 0) {
+                  count++;
+                  const fileParts = file.name.replace(/\.csv$/, '').split('_')
+                  current = {
+                    fileName: file.name.replace(/\.csv$/, '') + "_P" + count,
+                    filePos: count,
+                    fileExperiment: fileParts[0],
+                    fileStimul: fileParts[1],
+                    name: file.name.replace(/\.csv$/, '') + "_P" + count,
+                    data: [],
+                    color: getRandomColor(),
+                    visible: true,
+                    date: line.trim()
+                  };
+                  participants.push(current);
+                  content.shift(); // skip title line
+                } else if (current && line.length > 0) {
+                  const row = line.split(';')
+                  current.data.push({
+                    time: +row[0],
+                    time2: +row[0],
+                    validity: +row[1],
+                    x: +row[2],
+                    y: +row[3],
+                    z: +row[4],
+                    lp: +row[5],
+                    rp: +row[6]
+                  });
+                }
+              }
+
+              console.log(participants)
+              formFiltered();
+              calculateFixationsSaccades();
+              calcStats();
+              updateParticipantUI();
+              drawImageAndFixations();
+
+          };
+          reader.readAsText(file);
+      }
     }
 
     function updateParticipantUI() {
