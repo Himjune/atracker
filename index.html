@@ -78,7 +78,6 @@
       <h2>3. Загрузка фиксаций (.csv)</h2>
       <input type="file" id="dataLoader" accept=".csv" />
       <div id="participantList" class="participant-controls"></div>
-      <button onclick="playFixations()">▶ Воспроизвести</button>
     </section>
 
     <section class="block" id="fixation-stats">
@@ -128,6 +127,7 @@
 
     <section class="block" id="visualization">
       <h2>5. Визуализация</h2>
+      <button onclick="playFixations()">▶ Воспроизвести</button>
       <canvas id="canvas"></canvas>
     </section>
 
@@ -146,6 +146,7 @@
           p.fileExperiment,
           p.fileStimul,
           p.prefileInExpName,
+          p.date,
           s.ttf,
           s.fixTime,
           s.firstFix,
@@ -174,6 +175,13 @@
     var realScrW = 47.6;
     var realScrH = 26.8;
     var realDist = 61;
+
+    const stimulSettings = {
+      "text11.png": {
+        start: {left: 0.09, top: 0, right: 0.99, bottom: 0.12},
+        end: {left: 0.01, top: 0.82, right: 0.99, bottom: 0.95},
+      }
+    }
 
     function calcGrad(ratio, width) {
       const isLeft = ratio < 0.5;
@@ -335,7 +343,10 @@
             pupil: 0
           }
         let isFirstFixFound = false;
-        p.groups.forEach(g => {
+        const groups = p.groups
+        for (let index = p.startGroup; index < p.endGroup+1; index++) {
+          const g = groups[index];
+          
           if (g.isFix) {
             if (!isFirstFixFound) {
               isFirstFixFound = true;
@@ -351,7 +362,7 @@
           }
 
           p.stats.pupil += g.pupil;
-        });
+        }
 
         p.stats.meanFix = p.stats.fixTime / p.stats.allFix;
         p.stats.saccadAmpl = p.stats.saccadAmplCommon / p.stats.saccadCount;
@@ -404,6 +415,7 @@
           formGroup(g);
         });
 
+        // joining
         let checkIdx = 0;
         let cnt = 0;
         while (checkIdx < p.groups.length){
@@ -428,7 +440,11 @@
           
           checkIdx++;
         }
-        console.log(cnt, p.groups);
+        //end joining
+        
+        p.startGroup = 0;
+        p.endGroup = p.groups.length-1;
+        console.log(cnt, p.startGroup, p.endGroup, p.groups);
       });
 
     }
@@ -441,6 +457,7 @@
     let aoiList = [];
     let animationFrame = null;
     let playbackIndex = 0;
+    let currentStimul = "";
 
     document.getElementById("imageLoader").addEventListener("change", handleImage, false);
     document.getElementById("predataLoader").addEventListener("change", handlePreDataXLSX, false);
@@ -470,6 +487,7 @@
         };
         image.src = event.target.result;
       };
+      currentStimul = e.target.files[0].name;
       reader.readAsDataURL(e.target.files[0]);
     }
 
@@ -511,7 +529,7 @@
       const converter = {
         'sch': 'щ',
 
-        'yo': 'ё', 'zh': 'ж', 'ch': 'ч', 'sh': 'ш', 'yu': 'ю', 'ya': 'я', 'ts': 'ц',
+        'yo': 'ё', 'zh': 'ж', 'ch': 'ч', 'sh': 'ш', 'yu': 'ю', 'ya': 'я', 'ts': 'ц', 'kh': 'х',
 
         'a': 'а', 'b': 'б', 'v': 'в', 'g': 'г', 'd': 'д',
         'e': 'е', 'z': 'з', 'i': 'и', 'y': 'й', 'k': 'к',
@@ -541,6 +559,59 @@
         } else {
           p.predata = null;
         }
+      });
+    }
+
+    function isInside(point, rect) {
+      return (point.x >= rect.left && point.y >= rect.top &&
+        point.x <= rect.right && point.y <= rect.bottom)
+    }
+
+    function findStartAndEnd() {
+      const curStimulSettings = stimulSettings[currentStimul];
+      participants.forEach(p => {
+
+        let startFound = false;
+        let endStarted = false;
+        let endFound = false;
+        let groupIdx = 0;
+        let isGrpPointInsideStart = false;
+        let isGrpPointInsideEnd = false;
+        
+        while (groupIdx < p.groups.length) {
+          const cGroup = p.groups[groupIdx];
+          if (!cGroup.isFix) { groupIdx++; continue; }
+
+          isGrpPointInsideStart = false;
+          isGrpPointInsideEnd = false;
+          /*cGroup.data.forEach(point => {
+            if (!isGrpPointInsideStart && isInside(point, curStimulSettings.start)) {
+              isGrpPointInsideStart = true;
+            }
+            
+            if (!isGrpPointInsideEnd && isInside(point, curStimulSettings.end) ) {
+              endStarted = true;
+            }
+          });*/
+          isGrpPointInsideStart = isInside(cGroup.centroid, curStimulSettings.start);
+          isGrpPointInsideEnd = isInside(cGroup.centroid, curStimulSettings.end);
+
+          if (!startFound && isGrpPointInsideStart) {
+            p.startGroup = groupIdx;
+            startFound = true;
+            continue;
+          }
+
+          if (startFound && !endStarted && isGrpPointInsideEnd) endStarted = true;
+          if (endStarted && !endFound && isGrpPointInsideStart) {
+            endFound = true;
+            p.endGroup = groupIdx;
+            break;
+          }
+
+          groupIdx++;
+        }
+        console.log("fse", p.startGroup, p.endGroup, p)
       });
     }
 
@@ -644,6 +715,7 @@
               console.log(participants)
               formFiltered();
               calculateFixationsSaccades();
+              findStartAndEnd();
               calcStats();
               updateParticipantUI();
               drawImageAndFixations();
@@ -693,13 +765,33 @@
       reader.readAsText(file);
     }
 
+    function drawRect(coords) {
+      const left = coords.left * canvas.width;
+      const top = coords.top * canvas.height;
+      const right = coords.right * canvas.width;
+      const bottom = coords.bottom * canvas.height;
+      const width = right - left;
+      const height = bottom - top;
+      ctx.strokeRect(left, top, width, height);    
+    }
+
     function drawImageAndFixations(showCount = Infinity) {
       const stats = [];
       if (!image.src) return;
       resizeCanvasToDisplaySize();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
       ctx.lineWidth = 1;
+
+      const curStimulSettings = stimulSettings[currentStimul];
+  
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(0,195,0,0.8)";
+      drawRect(curStimulSettings.start);
+      ctx.strokeStyle = "rgba(195,0,0,0.8)";
+      drawRect(curStimulSettings.end);
+
 
       const scaleX = canvas.width;
       const scaleY = canvas.height;
@@ -707,11 +799,12 @@
       participants.forEach(p => {
         if (!p.visible) return;
         ctx.fillStyle = p.color;
-        const data = p.data.slice(0, showCount);
-        data.forEach(pt => {
-          if (pt.validity > 0 && pt.x >= 0 && pt.x <= 1 && pt.y >= 0 && pt.y <= 1) {
-            const cx = pt.x * scaleX;
-            const cy = pt.y * scaleY;
+        const groups = p.groups.slice(p.startGroup, Math.min(p.endGroup, showCount));
+        //const groups = p.groups.slice(0, showCount);
+        groups.forEach(gr => {
+          if ( gr.centroid.x >= 0 && gr.centroid.x <= 1 && gr.centroid.y >= 0 && gr.centroid.y <= 1) {
+            const cx = gr.centroid.x * scaleX;
+            const cy = gr.centroid.y * scaleY;
             ctx.beginPath();
             ctx.arc(cx, cy, 3, 0, Math.PI * 2);
             ctx.fill();
@@ -756,7 +849,7 @@
 
     function playFixations() {
       cancelAnimationFrame(animationFrame);
-      let maxPoints = Math.max(...participants.map(p => p.data.length));
+      let maxPoints = Math.max(...participants.map(p => p.endGroup));
       playbackIndex = 0;
 
       function step() {
