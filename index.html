@@ -67,6 +67,14 @@
     <section class="block" id="upload-image">
       <h2>1. Загрузка изображения</h2>
       <input type="file" id="imageLoader" accept="image/*" />
+      <label>Start: <input type="number" id="sLeft" value="0" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>Start: <input type="number" id="sTop" value="0" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>Start: <input type="number" id="sRight" value="1" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>Start: <input type="number" id="sBottom" value="0.2" step="0.01" onchange="updateStimulSettings()"></label><br>
+      <label>End: <input type="number" id="eLeft" value="0" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>End: <input type="number" id="eTop" value="0.8" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>End: <input type="number" id="eRight" value="1" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>End: <input type="number" id="eBottom" value="1.0" step="0.01" onchange="updateStimulSettings()"></label><br>
     </section>
 
     <section class="block" id="upload-pre-data">
@@ -77,6 +85,8 @@
     <section class="block" id="upload-data">
       <h2>3. Загрузка фиксаций (.csv)</h2>
       <input type="file" id="dataLoader" accept=".csv" />
+      <button onclick="selectAll(true)">Выбрать всех</button>
+      <button onclick="selectAll(false)">Убрать всех</button>
       <div id="participantList" class="participant-controls"></div>
     </section>
 
@@ -135,6 +145,9 @@
 
   <script src="./xlsx.full.min.js"></script>
   <script>
+    function selectAll(isAllCheck) {
+      document.getElementById("participantList").querySelectorAll('input[type=checkbox]').forEach(el => el.checked = isAllCheck);
+    }
     function exportAoiStatsToXLSX() {
       const headers = [
         ["Участник", "Эксперимент", "Стимул", "Имя в эксперименте", "Время до первой фиксации (с)", "Суммарное длительность фиксаций (с)", "Длительность первой фиксации (с)", "Ср. длительность фиксации", "Кол-во фиксаций", "Кол-во саккад", "Протяженность саккад по всем точкам (град.)", "Протяженность саккад по прямой от первой точки к последней (град.)", "Ср. длина саккады по всем точкам (град.)", "Ср. длина саккады по прямой от первой до последней точки (град.)", "Зрачок (мм?)"]
@@ -176,13 +189,34 @@
     var realScrH = 26.8;
     var realDist = 61;
 
-    const stimulSettings = {
+    /*const stimulSettings = {
       "text11.png": {
         start: {left: 0.09, top: 0, right: 0.99, bottom: 0.12},
         end: {left: 0.01, top: 0.82, right: 0.99, bottom: 0.95},
+      },
+      "text23.png": {
+        start: {left: 0.08, top: 0, right: 0.92, bottom: 0.1},
+        end: {left: 0.08, top: 0.85, right: 0.92, bottom: 0.985},
+      },
+    }*/
+    const stimulSettings = {
+        start: {left: 0.08, top: 0, right: 0.92, bottom: 0.1},
+        end: {left: 0.08, top: 0.85, right: 0.92, bottom: 0.985},
       }
-    }
 
+    function updateStimulSettings() {
+      stimulSettings.start.left = parseFloat(document.getElementById("sLeft").value);
+      stimulSettings.start.top = parseFloat(document.getElementById("sTop").value);
+      stimulSettings.start.right = parseFloat(document.getElementById("sRight").value);
+      stimulSettings.start.bottom = parseFloat(document.getElementById("sBottom").value);
+
+      stimulSettings.end.left = parseFloat(document.getElementById("eLeft").value);
+      stimulSettings.end.top = parseFloat(document.getElementById("eTop").value);
+      stimulSettings.end.right = parseFloat(document.getElementById("eRight").value);
+      stimulSettings.end.bottom = parseFloat(document.getElementById("eBottom").value);
+
+      drawImageAndFixations(Infinity);
+    }
     function calcGrad(ratio, width) {
       const isLeft = ratio < 0.5;
       const halfAngle = Math.atan(width/2/realDist);
@@ -568,7 +602,7 @@
     }
 
     function findStartAndEnd() {
-      const curStimulSettings = stimulSettings[currentStimul];
+      const curStimulSettings = stimulSettings//[currentStimul];
       participants.forEach(p => {
 
         let startFound = false;
@@ -784,7 +818,7 @@
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
       ctx.lineWidth = 1;
 
-      const curStimulSettings = stimulSettings[currentStimul];
+      const curStimulSettings = stimulSettings//[currentStimul];
   
       ctx.lineWidth = 2;
       ctx.strokeStyle = "rgba(0,195,0,0.8)";
@@ -799,9 +833,11 @@
       participants.forEach(p => {
         if (!p.visible) return;
         ctx.fillStyle = p.color;
-        const groups = p.groups.slice(p.startGroup, Math.min(p.endGroup, showCount));
-        //const groups = p.groups.slice(0, showCount);
-        groups.forEach(gr => {
+        //const groups = p.groups.slice(p.startGroup, Math.min(p.endGroup, showCount));
+        const groups = p.groups.slice(0, showCount);
+        groups.forEach((gr,i) => {
+          if (i<p.startGroup || i > p.endGroup) p.color.replace("rgb", "rgba").replace(")", ", 0.3)");
+
           if ( gr.centroid.x >= 0 && gr.centroid.x <= 1 && gr.centroid.y >= 0 && gr.centroid.y <= 1) {
             const cx = gr.centroid.x * scaleX;
             const cy = gr.centroid.y * scaleY;
