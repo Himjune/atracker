@@ -64,19 +64,6 @@
       <p>Загрузите изображение, Excel с фиксациями и JSON с AOI для визуального анализа.</p>
     </section>
 
-    <section class="block" id="upload-image">
-      <h2>1. Загрузка изображения</h2>
-      <input type="file" id="imageLoader" accept="image/*" />
-      <label>Start: <input type="number" id="sLeft" value="0" step="0.01" onchange="updateStimulSettings()"></label>
-      <label>Start: <input type="number" id="sTop" value="0" step="0.01" onchange="updateStimulSettings()"></label>
-      <label>Start: <input type="number" id="sRight" value="1" step="0.01" onchange="updateStimulSettings()"></label>
-      <label>Start: <input type="number" id="sBottom" value="0.2" step="0.01" onchange="updateStimulSettings()"></label><br>
-      <label>End: <input type="number" id="eLeft" value="0" step="0.01" onchange="updateStimulSettings()"></label>
-      <label>End: <input type="number" id="eTop" value="0.8" step="0.01" onchange="updateStimulSettings()"></label>
-      <label>End: <input type="number" id="eRight" value="1" step="0.01" onchange="updateStimulSettings()"></label>
-      <label>End: <input type="number" id="eBottom" value="1.0" step="0.01" onchange="updateStimulSettings()"></label><br>
-    </section>
-
     <section class="block" id="upload-pre-data">
       <h2>2. Загрузка прединформации (.xlsx)</h2>
       <input type="file" id="predataLoader" accept=".xlsx" />
@@ -114,7 +101,14 @@
             <th>Саккады прям. (град.)</th>
             <th>Ср. длина саккады общ. (град.)</th>
             <th>Ср. длина саккады прям. (град.)</th>
-            <th>Зрачок (мм?)</th>
+            <th>Начальный зрачок (мм)</th>
+            <th>Конечный зрачок (мм)</th>
+            <th>Минимальный зрачок (мм)</th>
+            <th>Средний зрачок (мм)</th>
+            <th>Процент среднего зрачка от ширины мин-макс (%)</th>
+            <th>Максимальный зрачок (мм)</th>
+            <th>Медиана зрачка (мм)</th>
+            <th>Ср. отклонение зрачка (мм)</th>
           </tr>
         </thead>
         <tbody id="aoiStatsBody"></tbody>
@@ -135,6 +129,19 @@
       <button onclick="calculateVisualAngle()">Вычислить</button>
     </section>
 
+
+    <section class="block" id="upload-image">
+      <h2>1. Загрузка изображения</h2>
+      <input type="file" id="imageLoader" accept="image/*" />
+      <label>Start: <input type="number" id="sLeft" value="0" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>Start: <input type="number" id="sTop" value="0" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>Start: <input type="number" id="sRight" value="1" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>Start: <input type="number" id="sBottom" value="0.2" step="0.01" onchange="updateStimulSettings()"></label><br>
+      <label>End: <input type="number" id="eLeft" value="0" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>End: <input type="number" id="eTop" value="0.8" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>End: <input type="number" id="eRight" value="1" step="0.01" onchange="updateStimulSettings()"></label>
+      <label>End: <input type="number" id="eBottom" value="1.0" step="0.01" onchange="updateStimulSettings()"></label><br>
+    </section>
     <section class="block" id="visualization">
       <h2>5. Визуализация</h2>
       <button onclick="playFixations()">▶ Воспроизвести</button>
@@ -150,7 +157,12 @@
     }
     function exportAoiStatsToXLSX() {
       const headers = [
-        ["Участник", "Эксперимент", "Стимул", "Имя в эксперименте", "Время до первой фиксации (с)", "Суммарное длительность фиксаций (с)", "Длительность первой фиксации (с)", "Ср. длительность фиксации", "Кол-во фиксаций", "Кол-во саккад", "Протяженность саккад по всем точкам (град.)", "Протяженность саккад по прямой от первой точки к последней (град.)", "Ср. длина саккады по всем точкам (град.)", "Ср. длина саккады по прямой от первой до последней точки (град.)", "Зрачок (мм?)"]
+        ["Участник", "Эксперимент", "Стимул", "Имя в эксперименте", "Дата", "Время до первой фиксации (с)", "Суммарное длительность фиксаций (с)",
+        "Длительность первой фиксации (с)", "Ср. длительность фиксации", "Кол-во фиксаций", "Кол-во саккад",
+        "Протяженность саккад по всем точкам (град.)", "Протяженность саккад по прямой от первой точки к последней (град.)", "Ср. длина саккады по всем точкам (град.)",
+        "Ср. длина саккады по прямой от первой до последней точки (град.)",
+        "Начальный Зрачок (мм)", "Конечный Зрачок (мм)", "Минимальный Зрачок (мм)", "Средний Зрачок (мм)", "Процент среднего на мин-макс (%)", "Максимальный Зрачок (мм)",
+        "Медиана Зрачок (мм)", "Среднее отклонение Зрачок (мм)"]
       ];
       const rows = participants.filter(p => p.stats && p.visible).map(p => {
         const s = p.stats;
@@ -170,7 +182,14 @@
           s.saccadAmplCommonStraight,
           s.saccadAmpl,
           s.saccadAmplStraight,
-          s.pupil
+          s.firstPupil,
+          s.lastPupil,
+          s.minPupil,
+          s.avgPupil,
+          s.avgPupilPerc,
+          s.maxPupil,
+          s.medPupil,
+          s.devPupil
         ];
       });
       const wb = XLSX.utils.book_new();
@@ -340,7 +359,15 @@
           <td>${s.saccadAmplCommonStraight}</td>
           <td>${s.saccadAmpl}</td>
           <td>${s.saccadAmplStraight}</td>
-          <td>${s.pupil}</td>
+          
+          <td>${s.firstPupil}</td>
+          <td>${s.lastPupil}</td>
+          <td>${s.minPupil}</td>
+          <td>${s.avgPupil}</td>
+          <td>${s.avgPupilPerc}</td>
+          <td>${s.maxPupil}</td>
+          <td>${s.medPupil}</td>
+          <td>${s.devPupil}</td>
         `;
         tbody.appendChild(row);
       });
@@ -374,10 +401,19 @@
             saccadAmplCommon: 0,
             saccadAmplStraight: 0,
             saccadAmplCommonStraight: 0,
-            pupil: 0
+            avgPupil: 0,
+            avgPupilPerc: 0,
+            minPupil: 1000,
+            maxPupil: -1000,
+            firstPupil: 0,
+            lastPupil: 0,
+            pupils: [],
+            medPupil: 0,
+            devPupil: 0
           }
         let isFirstFixFound = false;
         const groups = p.groups
+        const validGroupsAmnt = p.endGroup+1-p.startGroup
         for (let index = p.startGroup; index < p.endGroup+1; index++) {
           const g = groups[index];
           
@@ -395,13 +431,29 @@
             p.stats.saccadAmplCommonStraight += g.straight;
           }
 
-          p.stats.pupil += g.pupil;
+          p.stats.avgPupil += g.pupil;
+          if (p.stats.minPupil > g.pupil) p.stats.minPupil = g.pupil;
+          if (p.stats.maxPupil < g.pupil) p.stats.maxPupil = g.pupil;
+          p.stats.pupils.push(g.pupil);
         }
 
         p.stats.meanFix = p.stats.fixTime / p.stats.allFix;
         p.stats.saccadAmpl = p.stats.saccadAmplCommon / p.stats.saccadCount;
         p.stats.saccadAmplStraight = p.stats.saccadAmplCommonStraight / p.stats.saccadCount;
-        p.stats.pupil /= p.groups.length;
+        p.stats.avgPupil /= validGroupsAmnt;
+        p.stats.avgPupilPerc = (p.stats.avgPupil - p.stats.minPupil) / (p.stats.maxPupil - p.stats.minPupil) * 100;
+
+        for (let index = p.startGroup; index < p.endGroup+1; index++) {
+          p.stats.devPupil += (groups[index].pupil - p.stats.avgPupil)*(groups[index].pupil - p.stats.avgPupil);
+        }
+        console.log (p.stats.devPupil, p.stats);
+        p.stats.devPupil = Math.sqrt(p.stats.devPupil /  validGroupsAmnt)
+        p.stats.firstPupil = groups.length > 0 ? groups[p.startGroup].pupil : 0
+        p.stats.lastPupil = groups.length > 0 ? groups[p.endGroup].pupil : 0
+        p.stats.pupils.sort();
+        p.stats.medPupil = p.stats.pupils.length % 2 > 0 ?
+          p.stats.pupils[Math.floor(validGroupsAmnt/2)] :
+          (p.stats.pupils[validGroupsAmnt/2-1] + p.stats.pupils[validGroupsAmnt/2])/2;
       });
       updateAoiStatsTable();
     }
