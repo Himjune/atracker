@@ -268,10 +268,17 @@
           let x = medFilter(p.filtered[i-1].x, point.x, p.data[i+1].x);
           let y = medFilter(p.filtered[i-1].y, point.y, p.data[i+1].y);
           let z = medFilter(p.filtered[i-1].z, point.z, p.data[i+1].z);
+          
+          let lp = medFilter(p.filtered[i-1].lp, point.lp, p.data[i+1].lp);
+          let rp = medFilter(p.filtered[i-1].rp, point.rp, p.data[i+1].rp);
 
           point.filtered = (x!=point.x || y!=point.y);
           point.x = x;
           point.y = y;
+          point.z = z;
+
+          point.lp = lp;
+          point.rp = rp;
           p.filtered.push(point);
         }
         p.filtered.push(p.data.at(-1));
