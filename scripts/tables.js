@@ -47,15 +47,15 @@ $xlsxInput.addEventListener('change', async () => {
         let inserted = 0, overwritten = 0, skipped = 0;
         for (const r of rows) {
             const dstr = (r[COL.dt]).trim();
-            const d = toDate(dstr);
-            if (!d) { skipped++; continue; }
-            const key = fmtLocal(d);
+            //const d = toDate(dstr);
+            //if (!d) { skipped++; continue; }
+            const key = dstr;
             const rec = {
                 experiment: r[COL.exp] ?? null,
                 image: r[COL.img] ?? null,
                 fullName: r[COL.fio] ?? null,
                 participantCode: r[COL.code] ?? null,
-                dateTime: key
+                dateTime: dstr
             };
             if (Object.prototype.hasOwnProperty.call(db.recordInfos, key)) overwritten++; else inserted++;
             db.recordInfos[key] = rec; // перезапись по совпадающему «Дата и время»
