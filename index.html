@@ -47,6 +47,12 @@
                     <button id="btnImportXlsx" class="btn btn-outline-secondary btn-sm">
                         Загрузить XLSX → recordInfos
                     </button>
+                    <!-- Стимул: импорт изображения -->
+                    <input id="stimFileInput" type="file" accept="image/*" class="d-none">
+                    <button id="btnImportStim" class="btn btn-outline-secondary btn-sm" type="button"
+                        title="Загрузить стимул (картинка)">
+                        Загрузить стимул (картинка)
+                    </button>
                 </div>
             </div>
         </div>
@@ -72,6 +78,23 @@
     <!-- Область уведомлений + просмотр db -->
     <main class="container">
         <div id="alerts" class="mt-3"></div>
+        <!-- БЛОК ВЫБОРА И ОТОБРАЖЕНИЯ СТИМУЛА -->
+        <section class="mt-4">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <label for="stimSelect" class="form-label mb-0">Стимул:</label>
+                <select id="stimSelect" class="form-select form-select-sm" style="max-width: 420px;">
+                    <option value="">— выберите файл —</option>
+                </select>
+                <button id="btnClearStim" class="btn btn-outline-secondary btn-sm" type="button">Очистить выбор</button>
+            </div>
+
+            <div id="stimMeta" class="small text-secondary mb-2">Нет выбранного стимула.</div>
+
+            <div class="border rounded bg-body-tertiary p-2">
+                <canvas id="stimCanvas" style="width: 100%; height: auto; display: block;"></canvas>
+            </div>
+        </section>
+
         <div class="mt-4">
             <h1 class="h4">Хранилище данных</h1>
             <p class="text-secondary mb-1">Глобальная структура <code>db</code> доступна как <code>window.db</code>.</p>
@@ -83,6 +106,7 @@
     <script src="./scripts/dom.js"></script>
     <script src="./scripts/ls.js"></script>
     <script src="./scripts/tables.js"></script>
+    <script src="./scripts/stimulus.js"></script>
     <script>
 
         // ---------- 6) Инициализация ----------
