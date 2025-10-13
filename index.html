@@ -105,29 +105,48 @@
         <div class="mt-4">
             <h1 class="h4">Хранилище данных</h1>
             <p class="text-secondary mb-1">Глобальная структура <code>db</code> доступна как <code>window.db</code>.</p>
-            <pre id="dbPreview" class="bg-body-tertiary p-3 rounded border" style="max-height:40vh;overflow:auto"></pre>
+            <pre id="dbPreview" class="bg-body-tertiary p-3 rounded border" style="max-height:90vh;overflow:auto"></pre>
         </div>
     </main>
     <script src="./scripts/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
     <script src="./scripts/script.js"></script>
+    <script src="./scripts/indexdb.js"></script>
     <script src="./scripts/dom.js"></script>
     <script src="./scripts/ls.js"></script>
     <script src="./scripts/tables.js"></script>
     <script src="./scripts/stimulus.js"></script>
     <script src="./scripts/records.js"></script>
-    <script>
 
-        // ---------- 6) Инициализация ----------
-        (function bootstrapState() {
+    <script>
+    (async function bootstrapStateIndexed() {
+    try {
+        // 1) Если IndexedDB пуста, но есть снимок в localStorage — перенесём (мягкая миграция)
+        const LS_KEY = 'eyetrack-db-v1';
+        if (await idbIsEmpty()) {
+        const raw = localStorage.getItem(LS_KEY);
+        if (raw) {
             try {
-                const raw = localStorage.getItem(LS_KEY);
-                if (raw) { const data = JSON.parse(raw); if (isValidDbObject(data)) { Object.assign(db, data); alertBox('info', 'Стартовое состояние из localStorage.'); } }
-            } catch { }
-            renderDbPreview();
-        })();
+            const obj = JSON.parse(raw);
+            await idbImportDbObject(obj);
+            localStorage.removeItem(LS_KEY); // по желанию: очищать «старое» хранилище
+            alertBox?.('info', 'Миграция: данные перенесены из localStorage в IndexedDB.');
+            } catch { /* игнорируем повреждённые данные */ }
+        }
+        }
+
+        // 2) Всегда загружаемся из IndexedDB как из источника истины
+        await loadLocal();
+
+    } catch (e) {
+        // если что-то пошло не так — стартуем с пустым
+        renderDbPreview?.();
+        alertBox?.('danger', `Инициализация IndexedDB не удалась: ${e.message || e}`);
+    }
+    })();
     </script>
+
 </body>
 
 </html>

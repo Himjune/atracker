@@ -61,6 +61,9 @@ $xlsxInput.addEventListener('change', async () => {
             db.recordInfos[key] = rec; // перезапись по совпадающему «Дата и время»
         }
 
+        //await idbBulkPut('recordInfos', Object.entries(db.recordInfos));
+        //alertBox('info', 'recordInfos сохранены в IndexedDB.');
+
         renderDbPreview();
         saveLocal('после импорта XLSX');
         alertBox('success', `Импорт XLSX: добавлено ${inserted}, перезаписано ${overwritten}, пропущено (без даты/времени) ${skipped}.`);
