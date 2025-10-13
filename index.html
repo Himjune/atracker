@@ -53,6 +53,13 @@
                         title="Загрузить стимул (картинка)">
                         Загрузить стимул (картинка)
                     </button>
+                    <!-- CSV: импорт серий точек в db.records -->
+                    <input id="csvFileInput" type="file" accept=".csv,text/csv" class="d-none">
+                    <button id="btnImportCsv" class="btn btn-outline-secondary btn-sm" type="button"
+                        title="Загрузить CSV → records">
+                        Загрузить CSV → records
+                    </button>
+
                 </div>
             </div>
         </div>
@@ -102,11 +109,14 @@
         </div>
     </main>
     <script src="./scripts/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
     <script src="./scripts/script.js"></script>
     <script src="./scripts/dom.js"></script>
     <script src="./scripts/ls.js"></script>
     <script src="./scripts/tables.js"></script>
     <script src="./scripts/stimulus.js"></script>
+    <script src="./scripts/records.js"></script>
     <script>
 
         // ---------- 6) Инициализация ----------
