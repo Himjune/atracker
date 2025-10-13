@@ -107,41 +107,6 @@ function stimulusToDataURL(key) {
   return `data:${s.mime};base64,${s.dataBase64}`;
 }
 
-// Отрисовка изображения в canvas (режим contain + HiDPI)
-async function drawStimulusToCanvas(key) {
-  const url = stimulusToDataURL(key);
-  const ctx = $stimCanvas.getContext('2d');
-  if (!url) {
-    // очистить холст
-    $stimCanvas.width = 0; $stimCanvas.height = 0;
-    ctx.clearRect(0,0,$stimCanvas.width,$stimCanvas.height);
-    return;
-  }
-
-  const img = new Image();
-  img.decoding = 'async';
-  img.src = url;
-  await img.decode().catch(()=>{}); // мягко игнорируем ошибки декодирования
-
-  // размеры контейнера (CSS-пиксели)
-  const maxW = $stimCanvas.clientWidth || $stimCanvas.parentElement.clientWidth || 600;
-  const maxH = Math.max(200, Math.min(window.innerHeight * 0.6, 800)); // ограничим высоту области просмотра
-
-  const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
-  const dispW = Math.round(img.naturalWidth  * scale);
-  const dispH = Math.round(img.naturalHeight * scale);
-
-  const dpr = window.devicePixelRatio || 1;
-  $stimCanvas.width  = Math.max(1, Math.round(dispW * dpr));
-  $stimCanvas.height = Math.max(1, Math.round(dispH * dpr));
-  $stimCanvas.style.width  = dispW + 'px';
-  $stimCanvas.style.height = dispH + 'px';
-
-  // рисуем с учётом DPR
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, dispW, dispH);
-  ctx.drawImage(img, 0, 0, dispW, dispH);
-}
 
 // Обновление выпадающего списка + метаданных
 function updateStimulusList(preserveSelection = true) {
