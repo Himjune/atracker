@@ -38,9 +38,16 @@
               <input class="form-control" type="file" id="dataFile" />
             </div>
             <div class="col-md-4 align-self-end d-grid">
-              <button type="button" class="btn btn-primary">
+              <button type="button" class="btn btn-primary" id="uploadButton">
                 Загрузить файл
               </button>
+            </div>
+            <div class="col-12">
+              <div
+                id="uploadStatus"
+                class="small text-muted"
+                role="status"
+              ></div>
             </div>
           </form>
         </div>
@@ -53,8 +60,8 @@
             Сводка по сессии и ключевые метрики для проверки корректности
             данных.
           </p>
-          <div class="placeholder-panel text-center py-5">
-            <span class="text-muted">Здесь появится сводка данных</span>
+          <div id="sessionList" class="placeholder-panel py-4 px-3">
+            <span class="text-muted">Сессии еще не загружены.</span>
           </div>
         </div>
       </section>
@@ -97,6 +104,8 @@
       integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9s3O0g9a+5Q0Z6zcXW5nUrBc8PkFOJwJ8ERdknLPM"
       crossorigin="anonymous"
     ></script>
+    <script src="scripts/parser.js"></script>
+    <script src="scripts/render.js"></script>
     <script src="scripts/db.js"></script>
     <script src="scripts/main.js"></script>
   </body>
