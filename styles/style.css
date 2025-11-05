@@ -1,0 +1,9 @@
+body {
+  min-height: 100vh;
+}
+
+.placeholder-panel {
+  border: 1px dashed rgba(0, 0, 0, 0.15);
+  border-radius: 0.5rem;
+  background-color: rgba(13, 110, 253, 0.05);
+}
