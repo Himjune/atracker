@@ -65,19 +65,20 @@ const EyeTrackerRenderer = (() => {
         const stimulus = meta?.stimulusName || "";
         const experimentColor = stringToColor(experiment);
         const stimulusColor = stringToColor(stimulus);
+        const sourceBadge = session.sourceFile
+          ? `<span class="tag-chip bg-white border text-muted">Файл: ${session.sourceFile}</span>`
+          : "";
+
         const metaInfo = meta
           ? `
               <div class="d-flex flex-wrap gap-2 align-items-center small mb-2">
                 <span class="tag-chip" style="--tag-bg:${experimentColor.bg}; --tag-text:${experimentColor.text};">Эксперимент: ${experiment || "—"}</span>
                 <span class="tag-chip" style="--tag-bg:${stimulusColor.bg}; --tag-text:${stimulusColor.text};">Стимул: ${stimulus || "—"}</span>
                 <span class="tag-chip bg-light border text-muted">Участник: ${meta.participantName || "—"}</span>
+                ${sourceBadge}
               </div>
             `
-          : '<p class="small mb-2 text-danger">Информация по записи не найдена.</p>';
-
-        const sourceBadge = session.sourceFile
-          ? `<span class="tag-chip bg-white border text-muted">Файл: ${session.sourceFile}</span>`
-          : "";
+          : `<p class="small mb-2 text-danger">Информация по записи не найдена. ${sourceBadge}</p>`;
 
         const cardClasses = meta
           ? "mb-4"
