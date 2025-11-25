@@ -80,6 +80,31 @@
             Сводка по сессии и ключевые метрики для проверки корректности
             данных.
           </p>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label for="experimentFilter" class="form-label">Фильтр по эксперименту</label>
+              <select class="form-select" id="experimentFilter">
+                <option value="all">Все эксперименты</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label for="stimulusFilter" class="form-label">Фильтр по стимулу</label>
+              <select class="form-select" id="stimulusFilter">
+                <option value="all">Все стимулы</option>
+              </select>
+            </div>
+            <div class="col-md-12">
+              <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" id="unmatchedOnly" />
+                <label class="form-check-label" for="unmatchedOnly">
+                  Показывать только записи без сопоставления
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="d-flex justify-content-between align-items-center mb-2 small text-muted">
+            <span id="sessionCount">Показано: 0</span>
+          </div>
           <div id="sessionList" class="placeholder-panel py-4 px-3">
             <span class="text-muted">Сессии еще не загружены.</span>
           </div>

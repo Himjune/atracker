@@ -5,9 +5,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const metaFileInput = document.getElementById("metaFile");
   const metaUploadButton = document.getElementById("metaUploadButton");
   const metaStatusElement = document.getElementById("metaUploadStatus");
+  const experimentFilter = document.getElementById("experimentFilter");
+  const stimulusFilter = document.getElementById("stimulusFilter");
+  const unmatchedOnlyCheckbox = document.getElementById("unmatchedOnly");
   const sessionListElement = document.getElementById("sessionList");
+  const sessionCountElement = document.getElementById("sessionCount");
   const parserModule = window.eyeTrackerParser;
   const rendererModule = window.eyeTrackerRenderer;
+
+  let cachedRecordings = [];
+  let cachedSessions = [];
 
   const setStatus = (message, type = "muted") => {
     if (!statusElement) {
@@ -25,6 +32,109 @@ document.addEventListener("DOMContentLoaded", () => {
     metaStatusElement.className = `small text-${type}`;
   };
 
+  const populateFilters = (recordings) => {
+    if (!experimentFilter || !stimulusFilter) {
+      return;
+    }
+
+    const experiments = new Set();
+    const stimuli = new Set();
+
+    recordings.forEach((record) =>
+      experiments.add((record.experimentName || "").trim())
+    );
+    recordings.forEach((record) =>
+      stimuli.add((record.stimulusName || "").trim())
+    );
+
+    const renderOptions = (select, values, labelAll) => {
+      const currentValue = select.value || "all";
+      const options = [
+        `<option value="all">${labelAll}</option>`,
+        ...Array.from(values)
+          .filter((v) => v)
+          .sort((a, b) => a.localeCompare(b))
+          .map((value) => `<option value="${value}">${value}</option>`),
+      ];
+      select.innerHTML = options.join("");
+
+      if (currentValue && (currentValue === "all" || values.has(currentValue))) {
+        select.value = currentValue;
+      } else {
+        select.value = "all";
+      }
+
+      select.dataset.currentValue = select.value;
+    };
+
+    renderOptions(experimentFilter, experiments, "Все эксперименты");
+    renderOptions(stimulusFilter, stimuli, "Все стимулы");
+  };
+
+  const applyFilters = (sessions, recordingsByDate) => {
+    const expFilter = experimentFilter?.value || "all";
+    const stimFilter = stimulusFilter?.value || "all";
+    const unmatchedOnly = unmatchedOnlyCheckbox?.checked || false;
+
+    if (experimentFilter) {
+      experimentFilter.dataset.currentValue = expFilter;
+    }
+    if (stimulusFilter) {
+      stimulusFilter.dataset.currentValue = stimFilter;
+    }
+
+    return sessions.filter((session) => {
+      const meta = recordingsByDate.get(session.sessionKey);
+
+      if (unmatchedOnly && meta) {
+        return false;
+      }
+      if (unmatchedOnly && !meta) {
+        // still allow further filtering conditions below
+      }
+
+      if (expFilter !== "all" && (!meta || meta.experimentName !== expFilter)) {
+        return false;
+      }
+      if (stimFilter !== "all" && (!meta || meta.stimulusName !== stimFilter)) {
+        return false;
+      }
+      return true;
+    });
+  };
+
+  const renderWithFilters = () => {
+    if (!sessionListElement) {
+      return;
+    }
+
+    const recordingsByDate = new Map(
+      (cachedRecordings || []).map((item) => [item.recordedAt, item])
+    );
+    const filteredSessions = applyFilters(cachedSessions || [], recordingsByDate);
+
+    if (sessionCountElement) {
+      sessionCountElement.textContent = `Показано: ${filteredSessions.length} из ${
+        cachedSessions?.length || 0
+      }`;
+    }
+
+    if (
+      !rendererModule ||
+      typeof rendererModule.renderSessions !== "function"
+    ) {
+      sessionListElement.innerHTML =
+        '<span class="text-warning">Модуль отображения недоступен.</span>';
+      return;
+    }
+
+    rendererModule.renderSessions(
+      sessionListElement,
+      filteredSessions,
+      recordingsByDate
+    );
+  };
+
   const renderSessionsFromDB = async () => {
     if (!sessionListElement || !window.eyeTrackerDB) {
       return;
@@ -33,20 +143,11 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const sessions = await window.eyeTrackerDB.getSessions();
       const recordings = (await window.eyeTrackerDB.getRecordings()) || [];
-      const recordingsByDate = new Map(
-        recordings.map((item) => [item.recordedAt, item])
-      );
+      cachedRecordings = recordings;
+      cachedSessions = sessions;
 
-      if (
-        !rendererModule ||
-        typeof rendererModule.renderSessions !== "function"
-      ) {
-        sessionListElement.innerHTML =
-          '<span class="text-warning">Модуль отображения недоступен.</span>';
-        return;
-      }
-
-      rendererModule.renderSessions(sessionListElement, sessions, recordingsByDate);
+      populateFilters(recordings);
+      renderWithFilters();
     } catch (error) {
       console.error(error);
       if (
@@ -189,6 +290,10 @@ document.addEventListener("DOMContentLoaded", () => {
     event.preventDefault();
     handleMetadataUpload();
   });
+
+  experimentFilter?.addEventListener("change", () => renderWithFilters());
+  stimulusFilter?.addEventListener("change", () => renderWithFilters());
+  unmatchedOnlyCheckbox?.addEventListener("change", () => renderWithFilters());
 
   renderSessionsFromDB();
 
