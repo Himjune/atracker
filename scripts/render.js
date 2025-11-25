@@ -75,6 +75,10 @@ const EyeTrackerRenderer = (() => {
             `
           : '<p class="small mb-2 text-danger">Информация по записи не найдена.</p>';
 
+        const sourceBadge = session.sourceFile
+          ? `<span class="tag-chip bg-white border text-muted">Файл: ${session.sourceFile}</span>`
+          : "";
+
         const cardClasses = meta
           ? "mb-4"
           : "mb-4 border border-danger border-opacity-50";
@@ -88,6 +92,7 @@ const EyeTrackerRenderer = (() => {
               </span>
             </div>
             ${metaInfo}
+            ${sourceBadge}
             <details class="session-points mt-2">
               <summary class="text-primary small">Первые точки (до 3)</summary>
               <div class="table-responsive mt-2">

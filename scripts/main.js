@@ -203,6 +203,7 @@ document.addEventListener("DOMContentLoaded", () => {
               sessionKey: session.sessionKey,
               points: session.points,
               createdAt: session.sessionKey,
+              sourceFile: file.name,
             })
           )
         );

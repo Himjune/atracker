@@ -1,6 +1,6 @@
 const EyeTrackerDB = (() => {
   const DB_NAME = "eyeTrackerAnalytics";
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
   const STORE_NAME = "sessions";
   const RECORDINGS_STORE = "recordings";
 
@@ -17,12 +17,23 @@ const EyeTrackerDB = (() => {
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
+        let sessionStore;
+
         if (!db.objectStoreNames.contains(STORE_NAME)) {
-          const store = db.createObjectStore(STORE_NAME, {
+          sessionStore = db.createObjectStore(STORE_NAME, {
             keyPath: "id",
             autoIncrement: true,
           });
-          store.createIndex("createdAt", "createdAt", { unique: false });
+          sessionStore.createIndex("createdAt", "createdAt", { unique: false });
+          sessionStore.createIndex("sessionKey", "sessionKey", { unique: true });
+        } else {
+          sessionStore = request.transaction.objectStore(STORE_NAME);
+          if (!sessionStore.indexNames.contains("sessionKey")) {
+            sessionStore.createIndex("sessionKey", "sessionKey", { unique: true });
+          }
+          if (!sessionStore.indexNames.contains("createdAt")) {
+            sessionStore.createIndex("createdAt", "createdAt", { unique: false });
+          }
         }
 
         if (!db.objectStoreNames.contains(RECORDINGS_STORE)) {
@@ -48,15 +59,24 @@ const EyeTrackerDB = (() => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readwrite");
       const store = tx.objectStore(STORE_NAME);
+      const sessionIndex = store.index("sessionKey");
       const data = {
         ...session,
         createdAt: session.createdAt || new Date().toISOString(),
       };
 
-      const request = store.add(data);
+      const existingReq = sessionIndex.get(session.sessionKey);
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      existingReq.onsuccess = () => {
+        const existing = existingReq.result;
+        const payload = existing ? { ...data, id: existing.id } : data;
+
+        const request = store.put(payload);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      };
+
+      existingReq.onerror = () => reject(existingReq.error);
     });
   };
 
