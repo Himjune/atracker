@@ -1,7 +1,8 @@
 const EyeTrackerDB = (() => {
   const DB_NAME = "eyeTrackerAnalytics";
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const STORE_NAME = "sessions";
+  const RECORDINGS_STORE = "recordings";
 
   let dbInstance;
 
@@ -22,6 +23,15 @@ const EyeTrackerDB = (() => {
             autoIncrement: true,
           });
           store.createIndex("createdAt", "createdAt", { unique: false });
+        }
+
+        if (!db.objectStoreNames.contains(RECORDINGS_STORE)) {
+          const recordingsStore = db.createObjectStore(RECORDINGS_STORE, {
+            keyPath: "recordedAt",
+          });
+          recordingsStore.createIndex("participantName", "participantName", {
+            unique: false,
+          });
         }
       };
 
@@ -86,12 +96,41 @@ const EyeTrackerDB = (() => {
     });
   };
 
+  const addRecordings = async (recordings) => {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(RECORDINGS_STORE, "readwrite");
+      const store = tx.objectStore(RECORDINGS_STORE);
+
+      recordings.forEach((record) => {
+        store.put(record);
+      });
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  };
+
+  const getRecordings = async () => {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(RECORDINGS_STORE, "readonly");
+      const store = tx.objectStore(RECORDINGS_STORE);
+      const request = store.getAll();
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  };
+
   return {
     openDatabase,
     addSession,
     getSessions,
     deleteSession,
     clearSessions,
+    addRecordings,
+    getRecordings,
   };
 })();
 

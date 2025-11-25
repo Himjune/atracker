@@ -2,6 +2,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const fileInput = document.getElementById("dataFile");
   const uploadButton = document.getElementById("uploadButton");
   const statusElement = document.getElementById("uploadStatus");
+  const metaFileInput = document.getElementById("metaFile");
+  const metaUploadButton = document.getElementById("metaUploadButton");
+  const metaStatusElement = document.getElementById("metaUploadStatus");
   const sessionListElement = document.getElementById("sessionList");
   const parserModule = window.eyeTrackerParser;
   const rendererModule = window.eyeTrackerRenderer;
@@ -14,6 +17,14 @@ document.addEventListener("DOMContentLoaded", () => {
     statusElement.className = `small text-${type}`;
   };
 
+  const setMetaStatus = (message, type = "muted") => {
+    if (!metaStatusElement) {
+      return;
+    }
+    metaStatusElement.textContent = message;
+    metaStatusElement.className = `small text-${type}`;
+  };
+
   const renderSessionsFromDB = async () => {
     if (!sessionListElement || !window.eyeTrackerDB) {
       return;
@@ -21,6 +32,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const sessions = await window.eyeTrackerDB.getSessions();
+      const recordings = (await window.eyeTrackerDB.getRecordings()) || [];
+      const recordingsByDate = new Map(
+        recordings.map((item) => [item.recordedAt, item])
+      );
 
       if (
         !rendererModule ||
@@ -31,7 +46,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      rendererModule.renderSessions(sessionListElement, sessions);
+      rendererModule.renderSessions(sessionListElement, sessions, recordingsByDate);
     } catch (error) {
       console.error(error);
       if (
@@ -110,9 +125,69 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.readAsText(file, "utf-8");
   };
 
+  const handleMetadataUpload = () => {
+    if (!metaFileInput || metaFileInput.files.length === 0) {
+      setMetaStatus("Выберите Excel-файл с информацией по записям.", "warning");
+      return;
+    }
+
+    const file = metaFileInput.files[0];
+    setMetaStatus(`Чтение файла «${file.name}»...`);
+
+    const reader = new FileReader();
+
+    reader.onload = async (event) => {
+      try {
+        const buffer = event.target?.result;
+        if (!(buffer instanceof ArrayBuffer)) {
+          throw new Error("Невозможно прочитать файл как бинарные данные.");
+        }
+
+        if (
+          !parserModule ||
+          typeof parserModule.parseMetadataWorkbook !== "function"
+        ) {
+          throw new Error("Парсер метаданных недоступен.");
+        }
+
+        const recordings = parserModule.parseMetadataWorkbook(buffer);
+
+        if (!recordings.length) {
+          setMetaStatus("Записи не найдены или файл пуст.", "warning");
+          return;
+        }
+
+        await window.eyeTrackerDB.addRecordings(recordings);
+        await renderSessionsFromDB();
+
+        setMetaStatus(
+          `Загружено записей: ${recordings.length}. Данные сохранены и сопоставлены по дате.`,
+          "success"
+        );
+      } catch (error) {
+        console.error(error);
+        setMetaStatus(
+          "Ошибка обработки файла метаданных. Проверьте формат Excel.",
+          "danger"
+        );
+      }
+    };
+
+    reader.onerror = () => {
+      setMetaStatus("Ошибка чтения файла метаданных.", "danger");
+    };
+
+    reader.readAsArrayBuffer(file);
+  };
+
   uploadButton?.addEventListener("click", (event) => {
     event.preventDefault();
     handleFileUpload();
+  });
+
+  metaUploadButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    handleMetadataUpload();
   });
 
   renderSessionsFromDB();

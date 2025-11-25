@@ -70,6 +70,44 @@ const parseEyeTrackingCSV = (text) => {
   return sessions;
 };
 
+const parseMetadataWorkbook = (arrayBuffer) => {
+  if (typeof XLSX === "undefined") {
+    throw new Error("Библиотека XLSX не загружена.");
+  }
+
+  const workbook = XLSX.read(arrayBuffer, { type: "array" });
+  const [firstSheetName] = workbook.SheetNames;
+  const sheet = workbook.Sheets[firstSheetName];
+  if (!sheet) {
+    return [];
+  }
+
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+
+  return rows
+    .slice(1)
+    .map((row) => {
+      const experimentName = String(row[0] || "").trim();
+      const stimulusName = String(row[1] || "").trim();
+      const participantName = String(row[3] || "").trim();
+      const recordedAtRaw = row[4];
+      const recordedAt = recordedAtRaw !== undefined ? String(recordedAtRaw).trim() : "";
+
+      if (!recordedAt) {
+        return null;
+      }
+
+      return {
+        recordedAt,
+        experimentName,
+        stimulusName,
+        participantName,
+      };
+    })
+    .filter(Boolean);
+};
+
 window.eyeTrackerParser = {
   parseEyeTrackingCSV,
+  parseMetadataWorkbook,
 };

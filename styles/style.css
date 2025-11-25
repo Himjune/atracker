@@ -7,3 +7,15 @@ body {
   border-radius: 0.5rem;
   background-color: rgba(13, 110, 253, 0.05);
 }
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background-color: var(--tag-bg, #e9ecef);
+  color: var(--tag-text, #343a40);
+  font-size: 0.85rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}

@@ -50,6 +50,26 @@
               ></div>
             </div>
           </form>
+
+          <hr class="my-4" />
+          <form class="row g-3">
+            <div class="col-md-8">
+              <label for="metaFile" class="form-label">Файл с информацией по записям (Excel)</label>
+              <input class="form-control" type="file" id="metaFile" accept=".xlsx,.xls" />
+            </div>
+            <div class="col-md-4 align-self-end d-grid">
+              <button type="button" class="btn btn-outline-primary" id="metaUploadButton">
+                Загрузить информацию
+              </button>
+            </div>
+            <div class="col-12">
+              <div
+                id="metaUploadStatus"
+                class="small text-muted"
+                role="status"
+              ></div>
+            </div>
+          </form>
         </div>
       </section>
 
@@ -104,6 +124,7 @@
       integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9s3O0g9a+5Q0Z6zcXW5nUrBc8PkFOJwJ8ERdknLPM"
       crossorigin="anonymous"
     ></script>
+    <script src="xlsx.full.min.js"></script>
     <script src="scripts/parser.js"></script>
     <script src="scripts/render.js"></script>
     <script src="scripts/db.js"></script>

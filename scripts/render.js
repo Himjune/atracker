@@ -1,5 +1,20 @@
 const EyeTrackerRenderer = (() => {
-  const renderSessions = (container, sessions) => {
+  const stringToColor = (value) => {
+    if (!value) {
+      return { bg: "#e9ecef", text: "#343a40" };
+    }
+    let hash = 0;
+    for (let i = 0; i < value.length; i += 1) {
+      hash = value.charCodeAt(i) + ((hash << 5) - hash);
+      hash &= hash;
+    }
+    const hue = Math.abs(hash) % 360;
+    const bg = `hsl(${hue}, 70%, 88%)`;
+    const text = `hsl(${hue}, 55%, 30%)`;
+    return { bg, text };
+  };
+
+  const renderSessions = (container, sessions, recordingsByDate = new Map()) => {
     if (!container) {
       return;
     }
@@ -14,6 +29,7 @@ const EyeTrackerRenderer = (() => {
       .map((session) => {
         const pointsCount = session.points?.length ?? 0;
         const previewPoints = session.points?.slice(0, 3) ?? [];
+        const meta = recordingsByDate.get(session.sessionKey);
         const sampleRows = previewPoints
           .map((point) => {
             const time =
@@ -45,14 +61,33 @@ const EyeTrackerRenderer = (() => {
           })
           .join("");
 
+        const experiment = meta?.experimentName || "";
+        const stimulus = meta?.stimulusName || "";
+        const experimentColor = stringToColor(experiment);
+        const stimulusColor = stringToColor(stimulus);
+        const metaInfo = meta
+          ? `
+              <div class="d-flex flex-wrap gap-2 align-items-center small mb-2">
+                <span class="tag-chip" style="--tag-bg:${experimentColor.bg}; --tag-text:${experimentColor.text};">Эксперимент: ${experiment || "—"}</span>
+                <span class="tag-chip" style="--tag-bg:${stimulusColor.bg}; --tag-text:${stimulusColor.text};">Стимул: ${stimulus || "—"}</span>
+                <span class="tag-chip bg-light border text-muted">Участник: ${meta.participantName || "—"}</span>
+              </div>
+            `
+          : '<p class="small mb-2 text-danger">Информация по записи не найдена.</p>';
+
+        const cardClasses = meta
+          ? "mb-4"
+          : "mb-4 border border-danger border-opacity-50";
+
         return `
-          <div class="mb-4">
+          <div class="${cardClasses}">
             <div class="d-flex justify-content-between align-items-center">
               <h3 class="h6 mb-1">${session.sessionKey || "Без названия"}</h3>
               <span class="badge bg-primary bg-opacity-25 text-primary">
                 Точек: ${pointsCount}
               </span>
             </div>
+            ${metaInfo}
             <details class="session-points mt-2">
               <summary class="text-primary small">Первые точки (до 3)</summary>
               <div class="table-responsive mt-2">
