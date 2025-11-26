@@ -25,16 +25,24 @@ const EyeTrackerRenderer = (() => {
       return;
     }
 
-    const listItems = sessions
+    const rows = sessions
       .map((session) => {
         const pointsCount = session.points?.length ?? 0;
         const previewPoints = session.points?.slice(0, 3) ?? [];
         const meta = recordingsByDate.get(session.sessionKey);
+        const experiment = meta?.experimentName || "";
+        const stimulus = meta?.stimulusName || "";
+        const participant = meta?.participantName || "—";
+        const experimentColor = stringToColor(experiment);
+        const stimulusColor = stringToColor(stimulus);
+        const source = session.sourceFile || "—";
+        const rowClass = meta ? "" : "table-danger";
+
         const sampleRows = previewPoints
           .map((point) => {
             const time =
               Number.isFinite(point.timeOffsetMs) && point.timeOffsetMs !== null
-                ? (point.timeOffsetMs).toFixed(3)
+                ? point.timeOffsetMs.toFixed(3)
                 : "-";
             const x =
               Number.isFinite(point.x) && point.x !== null ? point.x : "-";
@@ -61,67 +69,69 @@ const EyeTrackerRenderer = (() => {
           })
           .join("");
 
-        const experiment = meta?.experimentName || "";
-        const stimulus = meta?.stimulusName || "";
-        const experimentColor = stringToColor(experiment);
-        const stimulusColor = stringToColor(stimulus);
-        const sourceBadge = session.sourceFile
-          ? `<span class="tag-chip bg-white border text-muted">Файл: ${session.sourceFile}</span>`
-          : "";
-
-        const metaInfo = meta
+        const metaBadges = meta
           ? `
-              <div class="d-flex flex-wrap gap-2 align-items-center small mb-2">
-                <span class="tag-chip" style="--tag-bg:${experimentColor.bg}; --tag-text:${experimentColor.text};">Эксперимент: ${experiment || "—"}</span>
-                <span class="tag-chip" style="--tag-bg:${stimulusColor.bg}; --tag-text:${stimulusColor.text};">Стимул: ${stimulus || "—"}</span>
-                <span class="tag-chip bg-light border text-muted">Участник: ${meta.participantName || "—"}</span>
-                ${sourceBadge}
-              </div>
+              <span class="tag-chip" style="--tag-bg:${experimentColor.bg}; --tag-text:${experimentColor.text};">${experiment || "—"}</span>
+              <span class="tag-chip" style="--tag-bg:${stimulusColor.bg}; --tag-text:${stimulusColor.text};">${stimulus || "—"}</span>
+              <span class="tag-chip bg-light border text-muted">${participant}</span>
             `
-          : `<p class="small mb-2 text-danger">Информация по записи не найдена. ${sourceBadge}</p>`;
-
-        const cardClasses = meta
-          ? "mb-4"
-          : "mb-4 border border-danger border-opacity-50";
+          : '<span class="text-danger">Нет метаданных</span>';
 
         return `
-          <div class="${cardClasses}">
-            <div class="d-flex justify-content-between align-items-center">
-              <h3 class="h6 mb-1">${session.sessionKey || "Без названия"}</h3>
-              <span class="badge bg-primary bg-opacity-25 text-primary">
-                Точек: ${pointsCount}
-              </span>
-            </div>
-            ${metaInfo}
-            ${sourceBadge}
-            <details class="session-points mt-2">
-              <summary class="text-primary small">Первые точки (до 3)</summary>
-              <div class="table-responsive mt-2">
-                <table class="table table-sm table-hover align-middle mb-0">
-                  <thead>
-                    <tr class="table-light">
-                      <th scope="col">t, мс</th>
-                      <th scope="col">X</th>
-                      <th scope="col">Y</th>
-                      <th scope="col">Зрачок L</th>
-                      <th scope="col">Зрачок R</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${
-                      sampleRows ||
-                      `<tr><td colspan="5" class="text-muted text-center">Нет данных для отображения</td></tr>`
-                    }
-                  </tbody>
-                </table>
-              </div>
-            </details>
-          </div>
+          <tr class="${rowClass}">
+            <td class="text-nowrap">${session.sessionKey || "Без названия"}</td>
+            <td>${metaBadges}</td>
+            <td class="text-nowrap">${pointsCount}</td>
+            <td class="text-nowrap">${source}</td>
+            <td class="text-nowrap">${meta ? "OK" : "Не найдено"}</td>
+            <td>
+              <details>
+                <summary class="small text-primary">Первые точки</summary>
+                <div class="table-responsive mt-2">
+                  <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                      <tr class="table-light">
+                        <th scope="col">t, мс</th>
+                        <th scope="col">X</th>
+                        <th scope="col">Y</th>
+                        <th scope="col">Зрачок L</th>
+                        <th scope="col">Зрачок R</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${
+                        sampleRows ||
+                        `<tr><td colspan="5" class="text-muted text-center">Нет данных для отображения</td></tr>`
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            </td>
+          </tr>
         `;
       })
       .join("");
 
-    container.innerHTML = listItems;
+    container.innerHTML = `
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr class="table-light">
+              <th scope="col">Серия</th>
+              <th scope="col">Эксперимент / Стимул / Участник</th>
+              <th scope="col">Точек</th>
+              <th scope="col">Файл</th>
+              <th scope="col">Статус</th>
+              <th scope="col">Детали</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    `;
   };
 
   const renderError = (container, message) => {
