@@ -82,8 +82,20 @@ document.addEventListener("DOMContentLoaded", () => {
       return view;
     }
     const limit = pupilBaseView || expandBounds(bounds, 0.05) || bounds;
-    const rangeX = view.xMax - view.xMin;
-    const rangeY = view.yMax - view.yMin;
+    const limitRangeX = (limit.xMax || 0) - (limit.xMin || 0) || 1;
+    const limitRangeY = (limit.yMax || 0) - (limit.yMin || 0) || 1;
+    let rangeX = view.xMax - view.xMin;
+    let rangeY = view.yMax - view.yMin;
+    if (rangeX > limitRangeX) {
+      rangeX = limitRangeX;
+      view.xMin = limit.xMin;
+      view.xMax = limit.xMax;
+    }
+    if (rangeY > limitRangeY) {
+      rangeY = limitRangeY;
+      view.yMin = limit.yMin;
+      view.yMax = limit.yMax;
+    }
     let xMin = view.xMin;
     let xMax = view.xMax;
     let yMin = view.yMin;
