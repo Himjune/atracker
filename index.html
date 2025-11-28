@@ -118,8 +118,43 @@
             Тепловая карта, траектории взгляда и другие визуальные представления
             будут отображаться после загрузки данных.
           </p>
-          <div class="placeholder-panel text-center py-5">
-            <span class="text-muted">Блок визуализации</span>
+          <div class="row g-4">
+            <div class="col-md-4">
+              <h3 class="h6">Выберите сессии</h3>
+              <div class="d-flex gap-2 mb-2">
+                <button type="button" class="btn btn-sm btn-outline-primary" id="pupilSelectAll">
+                  Выбрать все
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="pupilClearAll">
+                  Убрать все
+                </button>
+              </div>
+              <div
+                id="pupilSessionList"
+                class="border rounded-3 p-3 bg-light"
+                style="max-height: 340px; overflow-y: auto"
+              >
+                <span class="text-muted small">Сессии появятся после загрузки данных.</span>
+              </div>
+            </div>
+            <div class="col-md-8">
+              <h3 class="h6 d-flex align-items-center gap-2">
+                График размера зрачков
+                <span class="badge bg-secondary text-light">t → диаметр</span>
+              </h3>
+              <div class="border rounded-3 bg-white p-2">
+                <canvas
+                  id="pupilChart"
+                  width="800"
+                  height="380"
+                  class="w-100"
+                  style="max-width: 100%;"
+                ></canvas>
+              </div>
+              <div class="text-muted small mt-2">
+                Отображается средний диаметр зрачков (L/R) по времени в выбранных сессиях.
+              </div>
+            </div>
           </div>
         </div>
       </section>

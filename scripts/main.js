@@ -10,11 +10,23 @@ document.addEventListener("DOMContentLoaded", () => {
   const unmatchedOnlyCheckbox = document.getElementById("unmatchedOnly");
   const sessionListElement = document.getElementById("sessionList");
   const sessionCountElement = document.getElementById("sessionCount");
+  const pupilSessionList = document.getElementById("pupilSessionList");
+  const pupilChartCanvas = document.getElementById("pupilChart");
+  const pupilSelectAllBtn = document.getElementById("pupilSelectAll");
+  const pupilClearAllBtn = document.getElementById("pupilClearAll");
   const parserModule = window.eyeTrackerParser;
   const rendererModule = window.eyeTrackerRenderer;
 
   let cachedRecordings = [];
   let cachedSessions = [];
+  const selectedPupilSessions = new Set();
+  const pupilChartPadding = { left: 50, right: 20, top: 20, bottom: 40 };
+  let pupilView = null;
+  let pupilDataBounds = null;
+  let pupilBaseView = null;
+  let pupilUserAdjusted = false;
+  let isPanning = false;
+  let panStart = null;
 
   const buildRecordingKey = (dateKey, stimulusName) => {
     const datePart = String(dateKey || "").trim();
@@ -36,6 +48,74 @@ document.addEventListener("DOMContentLoaded", () => {
     const withoutExt = name.replace(/\.[^.]+$/, "");
     const parts = withoutExt.split("_");
     return (parts[1] || "").trim();
+  };
+
+  const buildRecordingsMap = (records = cachedRecordings) =>
+    new Map(
+      (records || []).map((item) => {
+        const key = buildRecordingKey(
+          item.recordedAtDate || item.recordedAt,
+          item.stimulusName
+        );
+        return [key, item];
+      })
+    );
+
+  const expandBounds = (bounds, factor = 0.05) => {
+    if (!bounds) {
+      return null;
+    }
+    const xRange = bounds.xMax - bounds.xMin || 1;
+    const yRange = bounds.yMax - bounds.yMin || 1;
+    const padX = xRange * factor;
+    const padY = yRange * factor;
+    return {
+      xMin: bounds.xMin - padX,
+      xMax: bounds.xMax + padX,
+      yMin: bounds.yMin - padY,
+      yMax: bounds.yMax + padY,
+    };
+  };
+
+  const clampViewToBounds = (view, bounds) => {
+    if (!view || !bounds) {
+      return view;
+    }
+    const limit = pupilBaseView || expandBounds(bounds, 0.05) || bounds;
+    const rangeX = view.xMax - view.xMin;
+    const rangeY = view.yMax - view.yMin;
+    let xMin = view.xMin;
+    let xMax = view.xMax;
+    let yMin = view.yMin;
+    let yMax = view.yMax;
+
+    if (xMin < limit.xMin) {
+      xMax += limit.xMin - xMin;
+      xMin = limit.xMin;
+    }
+    if (xMax > limit.xMax) {
+      xMin -= xMax - limit.xMax;
+      xMax = limit.xMax;
+    }
+    if (yMin < limit.yMin) {
+      yMax += limit.yMin - yMin;
+      yMin = limit.yMin;
+    }
+    if (yMax > limit.yMax) {
+      yMin -= yMax - limit.yMax;
+      yMax = limit.yMax;
+    }
+
+    return { xMin, xMax, yMin, yMax };
+  };
+
+  const getChartMetrics = () => {
+    const width = pupilChartCanvas?.width || 0;
+    const height = pupilChartCanvas?.height || 0;
+    const padding = pupilChartPadding;
+    const plotW = Math.max(1, width - padding.left - padding.right);
+    const plotH = Math.max(1, height - padding.top - padding.bottom);
+    return { width, height, padding, plotW, plotH };
   };
 
   const setStatus = (message, type = "muted") => {
@@ -134,15 +214,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const recordingsByDate = new Map(
-      (cachedRecordings || []).map((item) => {
-        const key = buildRecordingKey(
-          item.recordedAtDate || item.recordedAt,
-          item.stimulusName
-        );
-        return [key, item];
-      })
-    );
+    const recordingsByDate = buildRecordingsMap();
     const filteredSessions = applyFilters(cachedSessions || [], recordingsByDate);
 
     if (sessionCountElement) {
@@ -165,6 +237,9 @@ document.addEventListener("DOMContentLoaded", () => {
       filteredSessions,
       recordingsByDate
     );
+
+    renderPupilSelector(cachedSessions || [], recordingsByDate);
+    renderPupilChart(cachedSessions || []);
   };
 
   const renderSessionsFromDB = async () => {
@@ -180,6 +255,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       populateFilters(recordings);
       renderWithFilters();
+      const recordingsByDate = buildRecordingsMap(recordings);
+      renderPupilSelector(sessions, recordingsByDate);
+      renderPupilChart(sessions);
     } catch (error) {
       console.error(error);
       if (
@@ -327,6 +405,344 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.readAsArrayBuffer(file);
   };
 
+  const stringToColor = (value) => {
+    if (!value) {
+      return { bg: "#e9ecef", text: "#343a40" };
+    }
+    let hash = 0;
+    for (let i = 0; i < value.length; i += 1) {
+      hash = value.charCodeAt(i) + ((hash << 5) - hash);
+      hash &= hash;
+    }
+    const hue = Math.abs(hash) % 360;
+    const color = `hsl(${hue}, 70%, 50%)`;
+    return color;
+  };
+
+  const renderPupilSelector = (sessions, recordingsByDate = new Map()) => {
+    if (!pupilSessionList) {
+      return;
+    }
+
+    if (!sessions || sessions.length === 0) {
+      pupilSessionList.innerHTML =
+        '<span class="text-muted small">Загрузите сессии, чтобы выбрать их для графика.</span>';
+      return;
+    }
+
+    const initialSelectionNeeded = selectedPupilSessions.size === 0;
+
+    pupilSessionList.innerHTML = sessions
+      .map((session, index) => {
+        const metaKey = buildRecordingKey(
+          session.recordedAt,
+          session.stimulusName
+        );
+        const meta = metaKey ? recordingsByDate.get(metaKey) : undefined;
+        const experiment = meta?.experimentName || "—";
+        const stimulus = meta?.stimulusName || session.stimulusName || "—";
+        const participant = meta?.participantName || "—";
+        const shouldPreselect = initialSelectionNeeded && index < 3;
+        const checked =
+          shouldPreselect || selectedPupilSessions.has(session.sessionKey);
+        if (checked) {
+          selectedPupilSessions.add(session.sessionKey);
+        }
+        const color = stringToColor(session.sessionKey);
+        return `
+          <div class="form-check d-flex align-items-center gap-2 mb-2" style="color:${color}">
+            <input class="form-check-input pupil-toggle" type="checkbox" value="${session.sessionKey}" id="pupil-${index}" ${checked ? "checked" : ""}>
+            <label class="form-check-label small flex-grow-1" for="pupil-${index}">
+              <strong>${stimulus}</strong><br>
+              <span class="text-muted">Эксп: ${experiment} · Участник: ${participant}</span>
+            </label>
+          </div>
+        `;
+      })
+      .join("");
+
+    pupilSessionList
+      .querySelectorAll(".pupil-toggle")
+      .forEach((checkbox) =>
+        checkbox.addEventListener("change", (event) => {
+          const key = event.target.value;
+          if (event.target.checked) {
+            selectedPupilSessions.add(key);
+          } else {
+            selectedPupilSessions.delete(key);
+          }
+          pupilUserAdjusted = false;
+          renderPupilChart(sessions);
+        })
+      );
+  };
+
+  const renderPupilChart = (sessions) => {
+    if (!pupilChartCanvas) {
+      return;
+    }
+    const ctx = pupilChartCanvas.getContext("2d");
+    const { width, height, padding, plotW, plotH } = getChartMetrics();
+
+    ctx.clearRect(0, 0, width, height);
+
+    const selected = sessions.filter((s) => selectedPupilSessions.has(s.sessionKey));
+
+    ctx.font = "12px sans-serif";
+    ctx.fillStyle = "#6c757d";
+
+    if (selected.length === 0) {
+      ctx.fillText("Выберите хотя бы одну сессию для отображения.", 16, 24);
+      return;
+    }
+
+    const series = selected
+      .map((session) => {
+        const points = (session.points || []).flatMap((p) => {
+          const left = Number.isFinite(p.pupilLeftMm) ? p.pupilLeftMm : null;
+          const right = Number.isFinite(p.pupilRightMm) ? p.pupilRightMm : null;
+          const avg =
+            left !== null && right !== null
+              ? (left + right) / 2
+              : left !== null
+                ? left
+                : right !== null
+                  ? right
+                  : null;
+          if (avg === null || !Number.isFinite(p.timeOffsetMs)) {
+            return [];
+          }
+          return [{ x: p.timeOffsetMs, y: avg }];
+        });
+        return { session, points };
+      })
+      .filter((entry) => entry.points.length > 0);
+
+    if (series.length === 0) {
+      pupilDataBounds = null;
+      pupilBaseView = null;
+      pupilView = null;
+      ctx.fillText("Нет данных о размере зрачков для выбранных сессий.", 16, 24);
+      return;
+    }
+
+    const minX = 0;
+    const maxX = Math.max(...series.flatMap((s) => s.points.map((p) => p.x)));
+    const allY = series.flatMap((s) => s.points.map((p) => p.y));
+    const minY = Math.min(...allY);
+    const maxY = Math.max(...allY);
+
+    pupilDataBounds = { xMin: minX, xMax: maxX, yMin: minY, yMax: maxY };
+    pupilBaseView = expandBounds(pupilDataBounds);
+
+    if (!pupilView || !pupilUserAdjusted) {
+      pupilView = { ...pupilBaseView };
+    }
+
+    const safeRange = (value, fallback) =>
+      Number.isFinite(value) && value !== 0 ? value : fallback;
+
+    const rangeX = safeRange(pupilView.xMax - pupilView.xMin, 1);
+    const rangeY = safeRange(pupilView.yMax - pupilView.yMin, 1);
+
+    const scaleX = (x) => padding.left + (plotW * (x - pupilView.xMin)) / rangeX;
+    const scaleY = (y) =>
+      padding.top + plotH - (plotH * (y - pupilView.yMin)) / rangeY;
+
+    ctx.strokeStyle = "#dee2e6";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, padding.top);
+    ctx.lineTo(padding.left, padding.top + plotH);
+    ctx.lineTo(padding.left + plotW, padding.top + plotH);
+    ctx.stroke();
+
+    ctx.fillStyle = "#6c757d";
+    ctx.fillText("t, мс", width - padding.right - 30, height - 10);
+    ctx.save();
+    ctx.translate(15, padding.top + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText("Диаметр, мм", 0, 0);
+    ctx.restore();
+
+    const drawXTicks = () => {
+      const steps = 6;
+      const step = rangeX / steps;
+      ctx.fillStyle = "#6c757d";
+      ctx.strokeStyle = "#e9ecef";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      for (let i = 0; i <= steps; i += 1) {
+        const val = pupilView.xMin + step * i;
+        const x = scaleX(val);
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top + plotH);
+        ctx.lineTo(x, padding.top + plotH + 4);
+        ctx.stroke();
+        ctx.fillText(Math.round(val), x, padding.top + plotH + 8);
+      }
+    };
+
+    const drawYTicks = () => {
+      const steps = 5;
+      const step = rangeY / steps;
+      ctx.fillStyle = "#6c757d";
+      ctx.strokeStyle = "#e9ecef";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      for (let i = 0; i <= steps; i += 1) {
+        const val = pupilView.yMin + step * i;
+        const y = scaleY(val);
+        ctx.beginPath();
+        ctx.moveTo(padding.left - 4, y);
+        ctx.lineTo(padding.left, y);
+        ctx.stroke();
+        ctx.fillText(val.toFixed(2), padding.left - 6, y);
+      }
+    };
+
+    drawXTicks();
+    drawYTicks();
+
+    series.forEach(({ session, points }) => {
+      const color = stringToColor(session.sessionKey);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      points.forEach((pt, idx) => {
+        const x = scaleX(pt.x);
+        const y = scaleY(pt.y);
+        if (idx === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+      ctx.stroke();
+    });
+
+    let legendX = padding.left;
+    const legendY = padding.top - 6;
+    series.forEach(({ session }) => {
+      const color = stringToColor(session.sessionKey);
+      ctx.fillStyle = color;
+      ctx.fillRect(legendX, legendY - 10, 12, 12);
+      ctx.fillStyle = "#495057";
+      ctx.fillText(session.sessionKey, legendX + 16, legendY);
+      legendX += ctx.measureText(session.sessionKey).width + 60;
+    });
+  };
+
+  const selectAllPupilSessions = () => {
+    (cachedSessions || []).forEach((session) =>
+      selectedPupilSessions.add(session.sessionKey)
+    );
+    pupilUserAdjusted = false;
+    pupilView = pupilBaseView ? { ...pupilBaseView } : pupilView;
+    renderPupilSelector(cachedSessions || [], buildRecordingsMap());
+    renderPupilChart(cachedSessions || []);
+  };
+
+  const clearAllPupilSessions = () => {
+    selectedPupilSessions.clear();
+    pupilUserAdjusted = false;
+    pupilView = pupilBaseView ? { ...pupilBaseView } : pupilView;
+    renderPupilSelector(cachedSessions || [], buildRecordingsMap());
+    renderPupilChart(cachedSessions || []);
+  };
+
+  const screenToData = (px, py) => {
+    if (!pupilView) {
+      return { x: 0, y: 0 };
+    }
+    const { padding, plotW, plotH } = getChartMetrics();
+    const rangeX = pupilView.xMax - pupilView.xMin || 1;
+    const rangeY = pupilView.yMax - pupilView.yMin || 1;
+    const x =
+      pupilView.xMin + ((px - padding.left) / plotW) * rangeX;
+    const y =
+      pupilView.yMin +
+      ((plotH - (py - padding.top)) / plotH) * rangeY;
+    return { x, y };
+  };
+
+  const handleWheelZoom = (event) => {
+    if (!pupilView || !pupilDataBounds) {
+      return;
+    }
+    event.preventDefault();
+    const zoomFactor = event.deltaY < 0 ? 0.85 : 1.15;
+    const { x, y } = screenToData(event.offsetX, event.offsetY);
+    const rangeX = pupilView.xMax - pupilView.xMin || 1;
+    const rangeY = pupilView.yMax - pupilView.yMin || 1;
+
+    const newRangeX = rangeX * zoomFactor;
+    const newRangeY = rangeY * zoomFactor;
+    const baseRangeX =
+      (pupilBaseView?.xMax || 0) - (pupilBaseView?.xMin || 0) || newRangeX;
+    const baseRangeY =
+      (pupilBaseView?.yMax || 0) - (pupilBaseView?.yMin || 0) || newRangeY;
+
+    const limitedRangeX = Math.min(newRangeX, baseRangeX);
+    const limitedRangeY = Math.min(newRangeY, baseRangeY);
+
+    const newView = {
+      xMin: x - ((x - pupilView.xMin) * limitedRangeX) / rangeX,
+      xMax: x + ((pupilView.xMax - x) * limitedRangeX) / rangeX,
+      yMin: y - ((y - pupilView.yMin) * limitedRangeY) / rangeY,
+      yMax: y + ((pupilView.yMax - y) * limitedRangeY) / rangeY,
+    };
+
+    pupilView = clampViewToBounds(newView, pupilDataBounds);
+    pupilUserAdjusted = true;
+    renderPupilChart(cachedSessions || []);
+  };
+
+  const handlePanMove = (event) => {
+    if (!isPanning || !panStart || !pupilView || !pupilDataBounds) {
+      return;
+    }
+    if (event.buttons === 0) {
+      endPan();
+      return;
+    }
+    const { plotW, plotH } = getChartMetrics();
+    const rangeX = pupilView.xMax - pupilView.xMin || 1;
+    const rangeY = pupilView.yMax - pupilView.yMin || 1;
+    const dx = event.offsetX - panStart.x;
+    const dy = event.offsetY - panStart.y;
+    const shiftX = (dx * rangeX) / plotW;
+    const shiftY = (dy * rangeY) / plotH;
+
+    const newView = {
+      xMin: panStart.view.xMin - shiftX,
+      xMax: panStart.view.xMax - shiftX,
+      yMin: panStart.view.yMin + shiftY,
+      yMax: panStart.view.yMax + shiftY,
+    };
+
+    pupilView = clampViewToBounds(newView, pupilDataBounds);
+    pupilUserAdjusted = true;
+    renderPupilChart(cachedSessions || []);
+  };
+
+  const startPan = (event) => {
+    if (!pupilView) {
+      return;
+    }
+    isPanning = true;
+    panStart = {
+      x: event.offsetX,
+      y: event.offsetY,
+      view: { ...pupilView },
+    };
+  };
+
+  const endPan = () => {
+    isPanning = false;
+    panStart = null;
+  };
+
   uploadButton?.addEventListener("click", (event) => {
     event.preventDefault();
     handleFileUpload();
@@ -340,6 +756,16 @@ document.addEventListener("DOMContentLoaded", () => {
   experimentFilter?.addEventListener("change", () => renderWithFilters());
   stimulusFilter?.addEventListener("change", () => renderWithFilters());
   unmatchedOnlyCheckbox?.addEventListener("change", () => renderWithFilters());
+  pupilChartCanvas?.addEventListener("wheel", handleWheelZoom, {
+    passive: false,
+  });
+  pupilChartCanvas?.addEventListener("mousedown", startPan);
+  pupilChartCanvas?.addEventListener("mouseleave", endPan);
+  window.addEventListener("mousemove", handlePanMove);
+  window.addEventListener("mouseup", endPan);
+
+  pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
+  pupilClearAllBtn?.addEventListener("click", () => clearAllPupilSessions());
 
   renderSessionsFromDB();
 
