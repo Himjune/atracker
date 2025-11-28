@@ -16,6 +16,28 @@ document.addEventListener("DOMContentLoaded", () => {
   let cachedRecordings = [];
   let cachedSessions = [];
 
+  const buildRecordingKey = (dateKey, stimulusName) => {
+    const datePart = String(dateKey || "").trim();
+    const stimPart = String(stimulusName || "").trim();
+    return [datePart, stimPart].filter(Boolean).join(" | ");
+  };
+
+  const buildSessionKey = (dateKey, sourceFile) => {
+    const datePart = String(dateKey || "").trim();
+    const filePart = String(sourceFile || "").trim();
+    return [datePart, filePart].filter(Boolean).join(" | ");
+  };
+
+  const extractStimulusFromFileName = (fileName) => {
+    if (!fileName) {
+      return "";
+    }
+    const name = fileName.split("/").pop() || fileName;
+    const withoutExt = name.replace(/\.[^.]+$/, "");
+    const parts = withoutExt.split("_");
+    return (parts[1] || "").trim();
+  };
+
   const setStatus = (message, type = "muted") => {
     if (!statusElement) {
       return;
@@ -84,7 +106,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     return sessions.filter((session) => {
-      const meta = recordingsByDate.get(session.sessionKey);
+      const metaKey = buildRecordingKey(
+        session?.recordedAt,
+        session?.stimulusName
+      );
+      const meta = metaKey ? recordingsByDate.get(metaKey) : undefined;
 
       if (unmatchedOnly && meta) {
         return false;
@@ -109,7 +135,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const recordingsByDate = new Map(
-      (cachedRecordings || []).map((item) => [item.recordedAt, item])
+      (cachedRecordings || []).map((item) => {
+        const key = buildRecordingKey(
+          item.recordedAtDate || item.recordedAt,
+          item.stimulusName
+        );
+        return [key, item];
+      })
     );
     const filteredSessions = applyFilters(cachedSessions || [], recordingsByDate);
 
@@ -197,10 +229,14 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
+        const stimulusName = extractStimulusFromFileName(file.name);
+
         await Promise.all(
           sessions.map((session) =>
             window.eyeTrackerDB.addSession({
-              sessionKey: session.sessionKey,
+              sessionKey: buildSessionKey(session.sessionKey, file.name),
+              recordedAt: session.sessionKey,
+              stimulusName,
               points: session.points,
               createdAt: session.sessionKey,
               sourceFile: file.name,
@@ -259,11 +295,20 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
-        await window.eyeTrackerDB.addRecordings(recordings);
+        const normalized = recordings.map((record) => {
+          const key = buildRecordingKey(record.recordedAt, record.stimulusName);
+          return {
+            ...record,
+            recordedAtDate: record.recordedAt,
+            recordedAt: key || record.recordedAt,
+          };
+        });
+
+        await window.eyeTrackerDB.addRecordings(normalized);
         await renderSessionsFromDB();
 
         setMetaStatus(
-          `Загружено записей: ${recordings.length}. Данные сохранены и сопоставлены по дате.`,
+          `Загружено записей: ${recordings.length}. Данные сохранены и сопоставлены по дате и стимулу.`,
           "success"
         );
       } catch (error) {

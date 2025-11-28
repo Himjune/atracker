@@ -1,4 +1,10 @@
 const EyeTrackerRenderer = (() => {
+  const buildRecordingKey = (dateKey, stimulusName) => {
+    const datePart = String(dateKey || "").trim();
+    const stimPart = String(stimulusName || "").trim();
+    return [datePart, stimPart].filter(Boolean).join(" | ");
+  };
+
   const stringToColor = (value) => {
     if (!value) {
       return { bg: "#e9ecef", text: "#343a40" };
@@ -29,7 +35,11 @@ const EyeTrackerRenderer = (() => {
       .map((session) => {
         const pointsCount = session.points?.length ?? 0;
         const previewPoints = session.points?.slice(0, 3) ?? [];
-        const meta = recordingsByDate.get(session.sessionKey);
+        const metaKey = buildRecordingKey(
+          session.recordedAt,
+          session.stimulusName
+        );
+        const meta = metaKey ? recordingsByDate.get(metaKey) : undefined;
         const experiment = meta?.experimentName || "";
         const stimulus = meta?.stimulusName || "";
         const participant = meta?.participantName || "—";
