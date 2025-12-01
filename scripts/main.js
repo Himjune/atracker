@@ -14,6 +14,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilChartCanvas = document.getElementById("pupilChart");
   const pupilSelectAllBtn = document.getElementById("pupilSelectAll");
   const pupilClearAllBtn = document.getElementById("pupilClearAll");
+  const resetDbButton = document.getElementById("resetDbButton");
+  const resetStatusElement = document.getElementById("resetStatus");
   const parserModule = window.eyeTrackerParser;
   const rendererModule = window.eyeTrackerRenderer;
 
@@ -144,6 +146,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     metaStatusElement.textContent = message;
     metaStatusElement.className = `small text-${type}`;
+  };
+
+  const setResetStatus = (message, type = "muted") => {
+    if (!resetStatusElement) {
+      return;
+    }
+    resetStatusElement.textContent = message;
+    resetStatusElement.className = `small text-${type} mt-2`;
   };
 
   const populateFilters = (recordings) => {
@@ -287,36 +297,39 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  const handleFileUpload = () => {
+  const handleFileUpload = async () => {
     if (!fileInput || fileInput.files.length === 0) {
-      setStatus("Выберите CSV-файл для обработки.", "warning");
+      setStatus("Выберите один или несколько CSV-файлов для обработки.", "warning");
       return;
     }
 
-    const file = fileInput.files[0];
-    setStatus(`Чтение файла «${file.name}»...`);
+    if (
+      !parserModule ||
+      typeof parserModule.parseEyeTrackingCSV !== "function"
+    ) {
+      setStatus("Парсер CSV недоступен.", "danger");
+      return;
+    }
 
-    const reader = new FileReader();
+    const files = Array.from(fileInput.files);
+    const totalFiles = files.length;
+    let savedSessions = 0;
+    let processedFiles = 0;
+    const errors = [];
 
-    reader.onload = async (event) => {
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      setStatus(`Обработка файла ${i + 1}/${totalFiles}: «${file.name}»...`);
       try {
-        const text = event.target?.result;
+        const text = await file.text();
         if (typeof text !== "string") {
           throw new Error("Невозможно прочитать файл как текст.");
         }
 
-        if (
-          !parserModule ||
-          typeof parserModule.parseEyeTrackingCSV !== "function"
-        ) {
-          throw new Error("Парсер CSV недоступен.");
-        }
-
         const sessions = parserModule.parseEyeTrackingCSV(text);
-
         if (sessions.length === 0) {
-          setStatus("Серии не найдены или файл пуст.", "warning");
-          return;
+          errors.push(`«${file.name}»: серии не найдены или файл пуст.`);
+          continue;
         }
 
         const stimulusName = extractStimulusFromFileName(file.name);
@@ -334,23 +347,34 @@ document.addEventListener("DOMContentLoaded", () => {
           )
         );
 
-        await renderSessionsFromDB();
-
-        setStatus(
-          `Обработано серий: ${sessions.length}. Данные сохранены.`,
-          "success"
-        );
+        savedSessions += sessions.length;
+        processedFiles += 1;
       } catch (error) {
         console.error(error);
-        setStatus("Ошибка обработки файла. Проверьте формат CSV.", "danger");
+        errors.push(`«${file.name}»: ошибка обработки файла.`);
       }
-    };
+    }
 
-    reader.onerror = () => {
-      setStatus("Ошибка чтения файла.", "danger");
-    };
+    if (savedSessions > 0) {
+      await renderSessionsFromDB();
+    }
 
-    reader.readAsText(file, "utf-8");
+    if (savedSessions > 0 && errors.length === 0) {
+      setStatus(
+        `Файлов: ${processedFiles}/${totalFiles}. Сохранено серий: ${savedSessions}.`,
+        "success"
+      );
+    } else if (savedSessions > 0 && errors.length > 0) {
+      setStatus(
+        `Сохранено серий: ${savedSessions}. Ошибки: ${errors.join(" ")}`,
+        "warning"
+      );
+    } else {
+      setStatus(
+        errors.join(" ") || "Серии не найдены в выбранных файлах.",
+        "danger"
+      );
+    }
   };
 
   const handleMetadataUpload = () => {
@@ -663,6 +687,38 @@ document.addEventListener("DOMContentLoaded", () => {
     renderPupilChart(cachedSessions || []);
   };
 
+  const handleResetDb = async () => {
+    if (!window.eyeTrackerDB) {
+      setResetStatus("Хранилище недоступно.", "danger");
+      return;
+    }
+    const confirmed = window.confirm(
+      "Удалить все загруженные сессии и метаданные?"
+    );
+    if (!confirmed) {
+      return;
+    }
+    setResetStatus("Очистка базы данных...", "muted");
+    resetDbButton?.setAttribute("disabled", "disabled");
+    try {
+      await window.eyeTrackerDB.clearSessions();
+      if (typeof window.eyeTrackerDB.clearRecordings === "function") {
+        await window.eyeTrackerDB.clearRecordings();
+      }
+      cachedSessions = [];
+      cachedRecordings = [];
+      await renderSessionsFromDB();
+      setResetStatus("База очищена.", "success");
+      setStatus("", "muted");
+      setMetaStatus("", "muted");
+    } catch (error) {
+      console.error(error);
+      setResetStatus("Не удалось очистить базу. Повторите попытку.", "danger");
+    } finally {
+      resetDbButton?.removeAttribute("disabled");
+    }
+  };
+
   const screenToData = (px, py) => {
     if (!pupilView) {
       return { x: 0, y: 0 };
@@ -755,9 +811,9 @@ document.addEventListener("DOMContentLoaded", () => {
     panStart = null;
   };
 
-  uploadButton?.addEventListener("click", (event) => {
+  uploadButton?.addEventListener("click", async (event) => {
     event.preventDefault();
-    handleFileUpload();
+    await handleFileUpload();
   });
 
   metaUploadButton?.addEventListener("click", (event) => {
@@ -778,6 +834,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
   pupilClearAllBtn?.addEventListener("click", () => clearAllPupilSessions());
+  resetDbButton?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    await handleResetDb();
+  });
 
   renderSessionsFromDB();
 

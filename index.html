@@ -34,12 +34,12 @@
           </p>
           <form class="row g-3">
             <div class="col-md-8">
-              <label for="dataFile" class="form-label">Файл данных</label>
-              <input class="form-control" type="file" id="dataFile" />
+              <label for="dataFile" class="form-label">Файлы данных</label>
+              <input class="form-control" type="file" id="dataFile" accept=".csv" multiple />
             </div>
             <div class="col-md-4 align-self-end d-grid">
               <button type="button" class="btn btn-primary" id="uploadButton">
-                Загрузить файл
+                Загрузить файлы
               </button>
             </div>
             <div class="col-12">
@@ -70,6 +70,26 @@
               ></div>
             </div>
           </form>
+
+          <hr class="my-4" />
+          <div class="row g-3 align-items-center">
+            <div class="col-md-8">
+              <h3 class="h6 mb-1">Управление базой</h3>
+              <p class="text-muted small mb-0">
+                Полный сброс удалит все загруженные сессии и метаданные.
+              </p>
+            </div>
+            <div class="col-md-4 d-grid">
+              <button type="button" class="btn btn-danger" id="resetDbButton">
+                Сбросить БД
+              </button>
+              <div
+                id="resetStatus"
+                class="small text-muted mt-2"
+                role="status"
+              ></div>
+            </div>
+          </div>
         </div>
       </section>
 

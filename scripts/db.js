@@ -116,6 +116,18 @@ const EyeTrackerDB = (() => {
     });
   };
 
+  const clearRecordings = async () => {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(RECORDINGS_STORE, "readwrite");
+      const store = tx.objectStore(RECORDINGS_STORE);
+      const request = store.clear();
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  };
+
   const addRecordings = async (recordings) => {
     const db = await openDatabase();
     return new Promise((resolve, reject) => {
@@ -151,6 +163,7 @@ const EyeTrackerDB = (() => {
     clearSessions,
     addRecordings,
     getRecordings,
+    clearRecordings,
   };
 })();
 
