@@ -1,5 +1,10 @@
+:root {
+  scroll-behavior: smooth;
+}
+
 body {
   min-height: 100vh;
+  scroll-padding-top: 140px;
 }
 
 .placeholder-panel {
@@ -18,4 +23,29 @@ body {
   color: var(--tag-text, #343a40);
   font-size: 0.85rem;
   border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.section-nav {
+  z-index: 1020;
+}
+
+.section-nav .nav-link {
+  color: #495057;
+  border-radius: 999px;
+  transition: background-color 0.2s ease, color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.section-nav .nav-link:hover {
+  background-color: #f1f3f5;
+}
+
+.section-nav .nav-link.active {
+  color: #fff;
+  background-color: #0d6efd;
+  box-shadow: 0 0.15rem 0.65rem rgba(13, 110, 253, 0.2);
+}
+
+.section-anchor {
+  scroll-margin-top: 140px;
 }

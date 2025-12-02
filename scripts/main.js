@@ -16,6 +16,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilClearAllBtn = document.getElementById("pupilClearAll");
   const resetDbButton = document.getElementById("resetDbButton");
   const resetStatusElement = document.getElementById("resetStatus");
+  const sectionNavLinks = Array.from(
+    document.querySelectorAll("[data-scroll-target]")
+  );
+  const sectionAnchors = Array.from(
+    document.querySelectorAll("[data-section-anchor]")
+  );
+  const sectionNavOffset = 140;
+  let navSyncScheduled = false;
   const parserModule = window.eyeTrackerParser;
   const rendererModule = window.eyeTrackerRenderer;
 
@@ -154,6 +162,70 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     resetStatusElement.textContent = message;
     resetStatusElement.className = `small text-${type} mt-2`;
+  };
+
+  const setActiveSectionNav = (targetId) => {
+    sectionNavLinks.forEach((link) => {
+      const isActive = link.dataset.scrollTarget === targetId;
+      link.classList.toggle("active", isActive);
+      if (isActive) {
+        link.setAttribute("aria-current", "page");
+      } else {
+        link.removeAttribute("aria-current");
+      }
+    });
+  };
+
+  const scrollToSection = (targetId) => {
+    if (!targetId) {
+      return;
+    }
+    const section = document.getElementById(targetId);
+    if (!section) {
+      return;
+    }
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveSectionNav(targetId);
+  };
+
+  const syncSectionNav = () => {
+    if (navSyncScheduled || sectionAnchors.length === 0) {
+      return;
+    }
+    navSyncScheduled = true;
+    window.requestAnimationFrame(() => {
+      const scrollPos = window.scrollY + sectionNavOffset + 1;
+      let currentId = sectionAnchors[0]?.id || null;
+      for (let i = 0; i < sectionAnchors.length; i += 1) {
+        const sectionTop = sectionAnchors[i].offsetTop;
+        if (sectionTop <= scrollPos) {
+          currentId = sectionAnchors[i].id;
+        } else {
+          break;
+        }
+      }
+      if (currentId) {
+        setActiveSectionNav(currentId);
+      }
+      navSyncScheduled = false;
+    });
+  };
+
+  const initSectionNav = () => {
+    if (sectionNavLinks.length === 0) {
+      return;
+    }
+
+    sectionNavLinks.forEach((link) =>
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        scrollToSection(event.currentTarget.dataset.scrollTarget);
+      })
+    );
+
+    window.addEventListener("scroll", syncSectionNav, { passive: true });
+    window.addEventListener("resize", syncSectionNav);
+    syncSectionNav();
   };
 
   const populateFilters = (recordings) => {
@@ -839,6 +911,7 @@ document.addEventListener("DOMContentLoaded", () => {
     await handleResetDb();
   });
 
+  initSectionNav();
   renderSessionsFromDB();
 
   console.info("Eye tracking analytics dashboard initialized.");

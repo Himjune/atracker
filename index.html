@@ -25,8 +25,49 @@
       </div>
     </header>
 
+    <nav class="section-nav bg-white border-bottom sticky-top shadow-sm">
+      <div class="container d-flex flex-wrap align-items-center gap-2 py-2">
+        <span class="text-muted small">Навигация:</span>
+        <div class="nav nav-pills gap-1 flex-wrap" id="sectionNav">
+          <a
+            class="nav-link active"
+            href="#section-upload"
+            data-scroll-target="section-upload"
+            aria-current="page"
+          >
+            Загрузка
+          </a>
+          <a
+            class="nav-link"
+            href="#section-overview"
+            data-scroll-target="section-overview"
+          >
+            Обзор
+          </a>
+          <a
+            class="nav-link"
+            href="#section-visualization"
+            data-scroll-target="section-visualization"
+          >
+            Пуполометрия
+          </a>
+          <a
+            class="nav-link"
+            href="#section-insights"
+            data-scroll-target="section-insights"
+          >
+            Выводы
+          </a>
+        </div>
+      </div>
+    </nav>
+
     <main class="container my-4 d-flex flex-column gap-4">
-      <section class="card shadow-sm">
+      <section
+        class="card shadow-sm section-anchor"
+        id="section-upload"
+        data-section-anchor
+      >
         <div class="card-body">
           <h2 class="h5 card-title">1. Загрузка данных</h2>
           <p class="card-text text-muted">
@@ -93,7 +134,11 @@
         </div>
       </section>
 
-      <section class="card shadow-sm">
+      <section
+        class="card shadow-sm section-anchor"
+        id="section-overview"
+        data-section-anchor
+      >
         <div class="card-body">
           <h2 class="h5 card-title">2. Предварительный обзор</h2>
           <p class="card-text text-muted">
@@ -131,9 +176,13 @@
         </div>
       </section>
 
-      <section class="card shadow-sm">
+      <section
+        class="card shadow-sm section-anchor"
+        id="section-visualization"
+        data-section-anchor
+      >
         <div class="card-body">
-          <h2 class="h5 card-title">3. Визуализация</h2>
+          <h2 class="h5 card-title">3. Пуполометрия</h2>
           <p class="card-text text-muted">
             Тепловая карта, траектории взгляда и другие визуальные представления
             будут отображаться после загрузки данных.
@@ -179,7 +228,11 @@
         </div>
       </section>
 
-      <section class="card shadow-sm">
+      <section
+        class="card shadow-sm section-anchor"
+        id="section-insights"
+        data-section-anchor
+      >
         <div class="card-body">
           <h2 class="h5 card-title">4. Выводы и рекомендации</h2>
           <p class="card-text text-muted">
