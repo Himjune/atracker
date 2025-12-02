@@ -187,6 +187,30 @@
             Тепловая карта, траектории взгляда и другие визуальные представления
             будут отображаться после загрузки данных.
           </p>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6 col-lg-5">
+              <label for="pupilStimulusFilter" class="form-label">
+                Фильтр по стимулу-картинке
+              </label>
+              <select class="form-select" id="pupilStimulusFilter">
+                <option value="all">Все стимулы</option>
+              </select>
+            </div>
+            <div class="col-md-6 col-lg-5">
+              <label for="pupilParticipantFilter" class="form-label">
+                Фильтр по участнику
+              </label>
+              <input
+                type="text"
+                class="form-control"
+                id="pupilParticipantFilter"
+                list="pupilParticipantSuggestions"
+                placeholder="Введите имя или выберите из списка"
+                autocomplete="off"
+              />
+              <datalist id="pupilParticipantSuggestions"></datalist>
+            </div>
+          </div>
           <div class="row g-4">
             <div class="col-md-4">
               <h3 class="h6">Выберите сессии</h3>

@@ -14,6 +14,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilChartCanvas = document.getElementById("pupilChart");
   const pupilSelectAllBtn = document.getElementById("pupilSelectAll");
   const pupilClearAllBtn = document.getElementById("pupilClearAll");
+  const pupilStimulusFilter = document.getElementById("pupilStimulusFilter");
+  const pupilParticipantFilter = document.getElementById(
+    "pupilParticipantFilter"
+  );
+  const pupilParticipantSuggestions = document.getElementById(
+    "pupilParticipantSuggestions"
+  );
   const resetDbButton = document.getElementById("resetDbButton");
   const resetStatusElement = document.getElementById("resetStatus");
   const sectionNavLinks = Array.from(
@@ -162,6 +169,91 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     resetStatusElement.textContent = message;
     resetStatusElement.className = `small text-${type} mt-2`;
+  };
+
+  const populatePupilStimulusFilter = (recordings) => {
+    if (!pupilStimulusFilter) {
+      return;
+    }
+    const stimuli = new Set(
+      (recordings || [])
+        .map((r) => (r.stimulusName || "").trim())
+        .filter(Boolean)
+    );
+    const currentValue = pupilStimulusFilter.value || "all";
+    const options = [
+      '<option value="all">Все стимулы</option>',
+      ...Array.from(stimuli)
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => `<option value="${value}">${value}</option>`),
+    ];
+    pupilStimulusFilter.innerHTML = options.join("");
+    if (currentValue && (currentValue === "all" || stimuli.has(currentValue))) {
+      pupilStimulusFilter.value = currentValue;
+    } else {
+      pupilStimulusFilter.value = "all";
+    }
+    pupilStimulusFilter.dataset.currentValue = pupilStimulusFilter.value;
+  };
+
+  const populatePupilParticipantSuggestions = (recordings) => {
+    if (!pupilParticipantSuggestions) {
+      return;
+    }
+    const participants = new Set(
+      (recordings || [])
+        .map((r) => (r.participantName || "").trim())
+        .filter(Boolean)
+    );
+    const options = Array.from(participants)
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => `<option value="${value}"></option>`)
+      .join("");
+    pupilParticipantSuggestions.innerHTML = options;
+  };
+
+  const filterPupilSessions = (sessions, recordingsByDate) => {
+    const filterValue = pupilStimulusFilter?.value || "all";
+    const participantQuery = (pupilParticipantFilter?.value || "").trim().toLowerCase();
+    const byStimulus = (session, meta) => {
+      if (filterValue === "all") {
+        return true;
+      }
+      const stimulus = meta?.stimulusName || session?.stimulusName || "";
+      return stimulus === filterValue;
+    };
+    const byParticipant = (meta) => {
+      if (!participantQuery) {
+        return true;
+      }
+      const participant = (meta?.participantName || "").toLowerCase();
+      return participant.includes(participantQuery);
+    };
+
+    if (filterValue === "all") {
+      return (sessions || []).filter((session) => {
+        const metaKey = buildRecordingKey(
+          session?.recordedAt,
+          session?.stimulusName
+        );
+        const meta = metaKey ? recordingsByDate.get(metaKey) : undefined;
+        return byParticipant(meta);
+      });
+    }
+    return (sessions || []).filter((session) => {
+      const metaKey = buildRecordingKey(
+        session?.recordedAt,
+        session?.stimulusName
+      );
+      const meta = metaKey ? recordingsByDate.get(metaKey) : undefined;
+      return byStimulus(session, meta) && byParticipant(meta);
+    });
+  };
+
+  const renderPupilArea = (sessions, recordingsByDate) => {
+    const filtered = filterPupilSessions(sessions, recordingsByDate);
+    renderPupilSelector(filtered, recordingsByDate);
+    renderPupilChart(filtered);
   };
 
   const setActiveSectionNav = (targetId) => {
@@ -332,8 +424,7 @@ document.addEventListener("DOMContentLoaded", () => {
       recordingsByDate
     );
 
-    renderPupilSelector(cachedSessions || [], recordingsByDate);
-    renderPupilChart(cachedSessions || []);
+    renderPupilArea(cachedSessions || [], recordingsByDate);
   };
 
   const renderSessionsFromDB = async () => {
@@ -350,8 +441,9 @@ document.addEventListener("DOMContentLoaded", () => {
       populateFilters(recordings);
       renderWithFilters();
       const recordingsByDate = buildRecordingsMap(recordings);
-      renderPupilSelector(sessions, recordingsByDate);
-      renderPupilChart(sessions);
+      populatePupilStimulusFilter(recordings);
+      populatePupilParticipantSuggestions(recordings);
+      renderPupilArea(sessions, recordingsByDate);
     } catch (error) {
       console.error(error);
       if (
@@ -904,6 +996,18 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("mousemove", handlePanMove);
   window.addEventListener("mouseup", endPan);
 
+  pupilStimulusFilter?.addEventListener("change", () =>
+    renderPupilArea(
+      cachedSessions || [],
+      buildRecordingsMap(cachedRecordings || [])
+    )
+  );
+  pupilParticipantFilter?.addEventListener("input", () =>
+    renderPupilArea(
+      cachedSessions || [],
+      buildRecordingsMap(cachedRecordings || [])
+    )
+  );
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
   pupilClearAllBtn?.addEventListener("click", () => clearAllPupilSessions());
   resetDbButton?.addEventListener("click", async (event) => {
