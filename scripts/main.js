@@ -754,7 +754,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ctx.stroke();
 
     ctx.fillStyle = "#6c757d";
-    ctx.fillText("t, мс", width - padding.right - 30, height - 10);
+    ctx.fillText("t, с", width - padding.right - 30, height - 10);
     ctx.save();
     ctx.translate(15, padding.top + plotH / 2);
     ctx.rotate(-Math.PI / 2);

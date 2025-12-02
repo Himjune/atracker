@@ -101,7 +101,7 @@ const EyeTrackerRenderer = (() => {
                   <table class="table table-sm table-hover align-middle mb-0">
                     <thead>
                       <tr class="table-light">
-                        <th scope="col">t, мс</th>
+                        <th scope="col">t, с</th>
                         <th scope="col">X</th>
                         <th scope="col">Y</th>
                         <th scope="col">Зрачок L</th>
