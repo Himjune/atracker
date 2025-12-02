@@ -113,6 +113,29 @@
           </form>
 
           <hr class="my-4" />
+          <form class="row g-3">
+            <div class="col-md-9">
+              <label for="stimulusImage" class="form-label">Картинка стимула</label>
+              <input class="form-control" type="file" id="stimulusImage" accept="image/*" />
+              <div class="form-text">
+                Файл будет сохранен в базе в формате base64. Название стимула берется из имени файла с расширением.
+              </div>
+            </div>
+            <div class="col-md-3 align-self-end d-grid">
+              <button type="button" class="btn btn-outline-secondary" id="stimulusUploadButton">
+                Сохранить картинку
+              </button>
+            </div>
+            <div class="col-12">
+              <div
+                id="stimulusUploadStatus"
+                class="small text-muted"
+                role="status"
+              ></div>
+            </div>
+          </form>
+
+          <hr class="my-4" />
           <div class="row g-3 align-items-center">
             <div class="col-md-8">
               <h3 class="h6 mb-1">Управление базой</h3>

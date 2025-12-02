@@ -1,8 +1,9 @@
 const EyeTrackerDB = (() => {
   const DB_NAME = "eyeTrackerAnalytics";
-  const DB_VERSION = 3;
+  const DB_VERSION = 4;
   const STORE_NAME = "sessions";
   const RECORDINGS_STORE = "recordings";
+  const STIMULI_STORE = "stimuli";
 
   let dbInstance;
 
@@ -43,6 +44,13 @@ const EyeTrackerDB = (() => {
           recordingsStore.createIndex("participantName", "participantName", {
             unique: false,
           });
+        }
+
+        if (!db.objectStoreNames.contains(STIMULI_STORE)) {
+          const stimuliStore = db.createObjectStore(STIMULI_STORE, {
+            keyPath: "stimulusName",
+          });
+          stimuliStore.createIndex("uploadedAt", "uploadedAt", { unique: false });
         }
       };
 
@@ -116,6 +124,54 @@ const EyeTrackerDB = (() => {
     });
   };
 
+  const addStimulusImage = async (stimulus) => {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STIMULI_STORE, "readwrite");
+      const store = tx.objectStore(STIMULI_STORE);
+      const payload = {
+        ...stimulus,
+        uploadedAt: stimulus.uploadedAt || new Date().toISOString(),
+      };
+      const request = store.put(payload);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  };
+
+  const getStimulusImage = async (stimulusName) => {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STIMULI_STORE, "readonly");
+      const store = tx.objectStore(STIMULI_STORE);
+      const request = store.get(stimulusName);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  };
+
+  const getStimulusImages = async () => {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STIMULI_STORE, "readonly");
+      const store = tx.objectStore(STIMULI_STORE);
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  };
+
+  const clearStimulusImages = async () => {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STIMULI_STORE, "readwrite");
+      const store = tx.objectStore(STIMULI_STORE);
+      const request = store.clear();
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  };
+
   const clearRecordings = async () => {
     const db = await openDatabase();
     return new Promise((resolve, reject) => {
@@ -164,6 +220,10 @@ const EyeTrackerDB = (() => {
     addRecordings,
     getRecordings,
     clearRecordings,
+    addStimulusImage,
+    getStimulusImage,
+    getStimulusImages,
+    clearStimulusImages,
   };
 })();
 

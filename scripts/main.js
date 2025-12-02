@@ -5,6 +5,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const metaFileInput = document.getElementById("metaFile");
   const metaUploadButton = document.getElementById("metaUploadButton");
   const metaStatusElement = document.getElementById("metaUploadStatus");
+  const stimulusImageInput = document.getElementById("stimulusImage");
+  const stimulusUploadButton = document.getElementById("stimulusUploadButton");
+  const stimulusUploadStatus = document.getElementById("stimulusUploadStatus");
   const experimentFilter = document.getElementById("experimentFilter");
   const stimulusFilter = document.getElementById("stimulusFilter");
   const unmatchedOnlyCheckbox = document.getElementById("unmatchedOnly");
@@ -173,6 +176,23 @@ document.addEventListener("DOMContentLoaded", () => {
     resetStatusElement.textContent = message;
     resetStatusElement.className = `small text-${type} mt-2`;
   };
+
+  const setStimulusStatus = (message, type = "muted") => {
+    if (!stimulusUploadStatus) {
+      return;
+    }
+    stimulusUploadStatus.textContent = message;
+    stimulusUploadStatus.className = `small text-${type}`;
+  };
+
+  const fileToDataUrl = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () =>
+        reject(reader.error || new Error("Не удалось прочитать файл."));
+      reader.readAsDataURL(file);
+    });
 
   const populatePupilStimulusFilter = (recordings) => {
     if (!pupilStimulusFilter) {
@@ -608,6 +628,60 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.readAsArrayBuffer(file);
   };
 
+  const handleStimulusUpload = async () => {
+    if (!stimulusImageInput || stimulusImageInput.files.length === 0) {
+      setStimulusStatus("Выберите файл изображения стимула.", "warning");
+      return;
+    }
+
+    if (
+      !window.eyeTrackerDB ||
+      typeof window.eyeTrackerDB.addStimulusImage !== "function"
+    ) {
+      setStimulusStatus("Хранилище недоступно или не обновлено.", "danger");
+      return;
+    }
+
+    const file = stimulusImageInput.files[0];
+    const stimulusName = String(file?.name || "").trim();
+
+    if (!stimulusName) {
+      setStimulusStatus(
+        "Переименуйте файл: название стимула берется из имени файла с расширением.",
+        "warning"
+      );
+      return;
+    }
+
+    setStimulusStatus(`Конвертация «${file.name}» в base64...`);
+    stimulusUploadButton?.setAttribute("disabled", "disabled");
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      if (typeof dataUrl !== "string") {
+        throw new Error("Не удалось получить base64 строку.");
+      }
+
+      await window.eyeTrackerDB.addStimulusImage({
+        stimulusName,
+        imageBase64: dataUrl,
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+      });
+
+      setStimulusStatus(
+        `Стимул «${stimulusName}» сохранен в базе в виде base64.`,
+        "success"
+      );
+      stimulusImageInput.value = "";
+    } catch (error) {
+      console.error(error);
+      setStimulusStatus("Не удалось сохранить изображение стимула.", "danger");
+    } finally {
+      stimulusUploadButton?.removeAttribute("disabled");
+    }
+  };
+
   const stringToColor = (value) => {
     if (!value) {
       return { bg: "#e9ecef", text: "#343a40" };
@@ -865,6 +939,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (typeof window.eyeTrackerDB.clearRecordings === "function") {
         await window.eyeTrackerDB.clearRecordings();
       }
+      if (typeof window.eyeTrackerDB.clearStimulusImages === "function") {
+        await window.eyeTrackerDB.clearStimulusImages();
+      }
       cachedSessions = [];
       cachedRecordings = [];
       await renderSessionsFromDB();
@@ -979,6 +1056,11 @@ document.addEventListener("DOMContentLoaded", () => {
   metaUploadButton?.addEventListener("click", (event) => {
     event.preventDefault();
     handleMetadataUpload();
+  });
+
+  stimulusUploadButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    handleStimulusUpload();
   });
 
   experimentFilter?.addEventListener("change", () => renderWithFilters());
