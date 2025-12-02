@@ -46,6 +46,20 @@
           </a>
           <a
             class="nav-link"
+            href="#section-selection"
+            data-scroll-target="section-selection"
+          >
+            Выбор сессий
+          </a>
+          <a
+            class="nav-link"
+            href="#section-gaze"
+            data-scroll-target="section-gaze"
+          >
+            Точки на стимуле
+          </a>
+          <a
+            class="nav-link"
             href="#section-visualization"
             data-scroll-target="section-visualization"
           >
@@ -201,15 +215,18 @@
 
       <section
         class="card shadow-sm section-anchor"
-        id="section-visualization"
+        id="section-selection"
         data-section-anchor
       >
         <div class="card-body">
-          <h2 class="h5 card-title">3. Пуполометрия</h2>
+          <h2 class="h5 card-title">3. Выбор сессий</h2>
           <p class="card-text text-muted">
-            Тепловая карта, траектории взгляда и другие визуальные представления
-            будут отображаться после загрузки данных.
+            Отфильтруйте доступные записи и укажите, какие сессии попадут в визуализацию.
+            Эти фильтры и выбор работают для всех визуализаций ниже.
           </p>
+          <div class="alert alert-light border small" role="status">
+            Выбор здесь применится ко всем последующим графикам и дашбордам на странице.
+          </div>
           <div class="row g-3 mb-3">
             <div class="col-md-6 col-lg-5">
               <label for="pupilStimulusFilter" class="form-label">
@@ -245,7 +262,7 @@
             </div>
           </div>
           <div class="row g-4">
-            <div class="col-md-4">
+            <div class="col-md-6 col-lg-5">
               <h3 class="h6">Выберите сессии</h3>
               <div class="d-flex gap-2 mb-2">
                 <button type="button" class="btn btn-sm btn-outline-primary" id="pupilSelectAll">
@@ -263,7 +280,68 @@
                 <span class="text-muted small">Сессии появятся после загрузки данных.</span>
               </div>
             </div>
-            <div class="col-md-8">
+            <div class="col-md-6 col-lg-7">
+              <div class="placeholder-panel py-4 px-3 text-center h-100">
+                <span class="text-muted small">Настройте фильтры и выберите сессии для визуализации.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="card shadow-sm section-anchor"
+        id="section-gaze"
+        data-section-anchor
+      >
+        <div class="card-body">
+          <h2 class="h5 card-title">4. Точки на стимуле</h2>
+          <p class="card-text text-muted">
+            Наложение координат взгляда на картинку стимула. x и y хранятся как доли от ширины и высоты экрана (0 → 0%, 1 → 100%).
+          </p>
+          <div class="row g-4">
+            <div class="col-md-4 col-lg-3">
+              <div class="mb-3">
+                <label for="gazeStimulusSelect" class="form-label">Стимул</label>
+                <select class="form-select" id="gazeStimulusSelect">
+                  <option value="">Выберите стимул из отмеченных сессий</option>
+                </select>
+              </div>
+              <p class="small text-muted" id="gazeStimulusStatus">
+                Выберите сессии в разделе выше, чтобы отобразить точки.
+              </p>
+              <div class="alert alert-light border small mb-0" role="status">
+                Координаты интерпретируются как доли экрана (0..1) и масштабируются под размер изображения стимула.
+              </div>
+            </div>
+            <div class="col-md-8 col-lg-9">
+              <div class="border rounded-3 bg-white p-2">
+                <canvas
+                  id="gazeCanvas"
+                  width="900"
+                  height="520"
+                  class="w-100"
+                  style="max-width: 100%;"
+                ></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="card shadow-sm section-anchor"
+        id="section-visualization"
+        data-section-anchor
+      >
+        <div class="card-body">
+          <h2 class="h5 card-title">5. Пуполометрия</h2>
+          <p class="card-text text-muted">
+            Тепловая карта, траектории взгляда и другие визуальные представления
+            будут отображаться после загрузки данных. Используются выбранные выше фильтры и сессии.
+          </p>
+          <div class="row g-4">
+            <div class="col-12">
               <h3 class="h6 d-flex align-items-center gap-2">
                 График размера зрачков
                 <span class="badge bg-secondary text-light">t → диаметр</span>
@@ -291,7 +369,7 @@
         data-section-anchor
       >
         <div class="card-body">
-          <h2 class="h5 card-title">4. Выводы и рекомендации</h2>
+          <h2 class="h5 card-title">6. Выводы и рекомендации</h2>
           <p class="card-text text-muted">
             Автоматические инсайты помогут подсветить улучшения в дизайне и
             сценариях использования.

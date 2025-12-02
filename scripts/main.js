@@ -27,6 +27,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilParticipantClear = document.getElementById(
     "pupilParticipantClear"
   );
+  const gazeCanvas = document.getElementById("gazeCanvas");
+  const gazeStimulusSelect = document.getElementById("gazeStimulusSelect");
+  const gazeStimulusStatus = document.getElementById("gazeStimulusStatus");
   const resetDbButton = document.getElementById("resetDbButton");
   const resetStatusElement = document.getElementById("resetStatus");
   const sectionNavLinks = Array.from(
@@ -42,6 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let cachedRecordings = [];
   let cachedSessions = [];
+  let cachedStimuliImages = [];
   const selectedPupilSessions = new Set();
   const pupilChartPadding = { left: 50, right: 20, top: 20, bottom: 40 };
   let pupilView = null;
@@ -50,6 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let pupilUserAdjusted = false;
   let isPanning = false;
   let panStart = null;
+  const stimulusImageCache = new Map();
 
   const buildRecordingKey = (dateKey, stimulusName) => {
     const datePart = String(dateKey || "").trim();
@@ -83,6 +88,45 @@ document.addEventListener("DOMContentLoaded", () => {
         return [key, item];
       })
     );
+
+  const getSelectedSessions = (sessions = []) =>
+    (sessions || []).filter((session) =>
+      selectedPupilSessions.has(session.sessionKey)
+    );
+
+  const getStimulusImageRecord = (stimulusName) =>
+    (cachedStimuliImages || []).find(
+      (item) =>
+        (item.stimulusName || "").trim() === (stimulusName || "").trim()
+    );
+
+  const loadStimulusImage = (stimulusName) => {
+    const cleanName = (stimulusName || "").trim();
+    if (!cleanName) {
+      return Promise.resolve(null);
+    }
+
+    if (stimulusImageCache.has(cleanName)) {
+      return stimulusImageCache.get(cleanName);
+    }
+
+    const record = getStimulusImageRecord(cleanName);
+    if (!record || !record.imageBase64) {
+      const missing = Promise.resolve(null);
+      stimulusImageCache.set(cleanName, missing);
+      return missing;
+    }
+
+    const loader = new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = record.imageBase64;
+    });
+
+    stimulusImageCache.set(cleanName, loader);
+    return loader;
+  };
 
   const expandBounds = (bounds, factor = 0.05) => {
     if (!bounds) {
@@ -185,6 +229,14 @@ document.addEventListener("DOMContentLoaded", () => {
     stimulusUploadStatus.className = `small text-${type}`;
   };
 
+  const setGazeStatus = (message, type = "muted") => {
+    if (!gazeStimulusStatus) {
+      return;
+    }
+    gazeStimulusStatus.textContent = message;
+    gazeStimulusStatus.className = `small text-${type}`;
+  };
+
   const fileToDataUrl = (file) =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -277,6 +329,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const filtered = filterPupilSessions(sessions, recordingsByDate);
     renderPupilSelector(filtered, recordingsByDate);
     renderPupilChart(filtered);
+    renderGazeArea(filtered);
   };
 
   const setActiveSectionNav = (targetId) => {
@@ -458,8 +511,14 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const sessions = await window.eyeTrackerDB.getSessions();
       const recordings = (await window.eyeTrackerDB.getRecordings()) || [];
+      const stimuliImages =
+        typeof window.eyeTrackerDB.getStimulusImages === "function"
+          ? await window.eyeTrackerDB.getStimulusImages()
+          : [];
       cachedRecordings = recordings;
       cachedSessions = sessions;
+      cachedStimuliImages = stimuliImages || [];
+      stimulusImageCache.clear();
 
       populateFilters(recordings);
       renderWithFilters();
@@ -669,6 +728,15 @@ document.addEventListener("DOMContentLoaded", () => {
         mimeType: file.type || "application/octet-stream",
       });
 
+      if (typeof window.eyeTrackerDB.getStimulusImages === "function") {
+        cachedStimuliImages =
+          (await window.eyeTrackerDB.getStimulusImages()) || [];
+        stimulusImageCache.clear();
+        renderGazeArea(
+          filterPupilSessions(cachedSessions || [], buildRecordingsMap())
+        );
+      }
+
       setStimulusStatus(
         `Стимул «${stimulusName}» сохранен в базе в виде base64.`,
         "success"
@@ -694,6 +762,202 @@ document.addEventListener("DOMContentLoaded", () => {
     const hue = Math.abs(hash) % 360;
     const color = `hsl(${hue}, 70%, 50%)`;
     return color;
+  };
+
+  const updateGazeStimulusOptions = (sessions) => {
+    if (!gazeStimulusSelect) {
+      return;
+    }
+    const selected = getSelectedSessions(sessions);
+    const stimuli = new Set(
+      selected
+        .map((session) => (session.stimulusName || "").trim())
+        .filter(Boolean)
+    );
+
+    if (stimuli.size === 0) {
+      gazeStimulusSelect.innerHTML =
+        '<option value="">Нет выбранных стимулов</option>';
+      gazeStimulusSelect.value = "";
+      gazeStimulusSelect.dataset.currentValue = "";
+      return;
+    }
+
+    const currentValue =
+      gazeStimulusSelect.dataset.currentValue || gazeStimulusSelect.value || "";
+    const options = Array.from(stimuli)
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => `<option value="${value}">${value}</option>`);
+
+    gazeStimulusSelect.innerHTML = options.join("");
+    const nextValue = currentValue && stimuli.has(currentValue)
+      ? currentValue
+      : options.length > 0
+        ? stimuli.values().next().value
+        : "";
+    gazeStimulusSelect.value = nextValue;
+    gazeStimulusSelect.dataset.currentValue = nextValue;
+  };
+
+  const renderGazeCanvas = async (sessions) => {
+    if (!gazeCanvas) {
+      return;
+    }
+    const ctx = gazeCanvas.getContext("2d");
+    const width = gazeCanvas.width || 0;
+    const height = gazeCanvas.height || 0;
+    const emptyCanvas = (message) => {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#f8f9fa";
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#dee2e6";
+      ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
+      ctx.fillStyle = "#6c757d";
+      ctx.font = "13px sans-serif";
+      ctx.fillText(message, 16, 24);
+    };
+
+    if (!sessions || sessions.length === 0) {
+      setGazeStatus("Выберите сессии выше, чтобы построить точки.", "muted");
+      emptyCanvas("Нет данных для отображения");
+      return;
+    }
+
+    const selected = getSelectedSessions(sessions);
+    if (selected.length === 0) {
+      setGazeStatus("Отметьте сессии в блоке выбора, чтобы увидеть точки.", "warning");
+      emptyCanvas("Сессии не выбраны");
+      return;
+    }
+
+    const stimuli = Array.from(
+      new Set(
+        selected
+          .map((session) => (session.stimulusName || "").trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
+    if (stimuli.length === 0) {
+      setGazeStatus("У выбранных сессий нет названия стимула.", "warning");
+      emptyCanvas("Стимул не указан");
+      return;
+    }
+
+    let stimulusName = gazeStimulusSelect?.value || "";
+    if (!stimulusName || !stimuli.includes(stimulusName)) {
+      stimulusName = stimuli[0];
+      if (gazeStimulusSelect) {
+        gazeStimulusSelect.value = stimulusName;
+        gazeStimulusSelect.dataset.currentValue = stimulusName;
+      }
+    }
+
+    const stimulusSessions = selected.filter(
+      (session) => (session.stimulusName || "").trim() === stimulusName
+    );
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = "#f8f9fa";
+    ctx.fillRect(0, 0, width, height);
+
+    const img = await loadStimulusImage(stimulusName);
+    let drawRect = { x: 0, y: 0, width, height };
+
+    if (img) {
+      const imgRatio = img.width / (img.height || 1);
+      const canvasRatio = width / (height || 1);
+      if (imgRatio > canvasRatio) {
+        drawRect.width = width;
+        drawRect.height = width / imgRatio;
+      } else {
+        drawRect.height = height;
+        drawRect.width = height * imgRatio;
+      }
+      drawRect.x = (width - drawRect.width) / 2;
+      drawRect.y = (height - drawRect.height) / 2;
+      ctx.drawImage(img, drawRect.x, drawRect.y, drawRect.width, drawRect.height);
+      setGazeStatus(
+        `Стимул: ${stimulusName}. Сессий: ${stimulusSessions.length}.`,
+        "muted"
+      );
+    } else {
+      setGazeStatus(
+        `Картинка стимула «${stimulusName}» не найдена. Точки показаны на фоне.`,
+        "warning"
+      );
+      ctx.strokeStyle = "#dee2e6";
+      ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
+    }
+
+    const points = stimulusSessions
+      .flatMap((session) =>
+        (session.points || []).map((point) => ({
+          x: Number(point.x),
+          y: Number(point.y),
+          sessionKey: session.sessionKey,
+        }))
+      )
+      .filter(
+        (pt) =>
+          Number.isFinite(pt.x) &&
+          Number.isFinite(pt.y) &&
+          pt.x !== null &&
+          pt.y !== null
+      )
+      .map((pt) => ({
+        ...pt,
+        x: Math.min(1, Math.max(0, pt.x)),
+        y: Math.min(1, Math.max(0, pt.y)),
+      }));
+
+    if (points.length === 0) {
+      ctx.fillStyle = "#6c757d";
+      ctx.font = "13px sans-serif";
+      ctx.fillText(
+        "Для выбранных сессий нет точек с координатами.",
+        16,
+        24
+      );
+      return;
+    }
+
+    setGazeStatus(
+      `Стимул: ${stimulusName}. Сессий: ${stimulusSessions.length}. Точек: ${points.length}.`,
+      img ? "muted" : "warning"
+    );
+
+    points.forEach((pt) => {
+      const px = drawRect.x + pt.x * drawRect.width;
+      const py = drawRect.y + pt.y * drawRect.height;
+      const color = stringToColor(pt.sessionKey);
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "#ffffffcc";
+      ctx.beginPath();
+      ctx.arc(px, py, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
+
+    const legendSessions = Array.from(
+      new Set(points.map((pt) => pt.sessionKey))
+    );
+    let legendX = 12;
+    const legendY = 20;
+    legendSessions.forEach((sessionKey) => {
+      const color = stringToColor(sessionKey);
+      ctx.fillStyle = color;
+      ctx.fillRect(legendX, legendY - 10, 12, 12);
+      ctx.fillStyle = "#495057";
+      ctx.font = "12px sans-serif";
+      ctx.fillText(sessionKey, legendX + 16, legendY + 1);
+      legendX += ctx.measureText(sessionKey).width + 52;
+    });
+  };
+
+  const renderGazeArea = (sessions) => {
+    updateGazeStimulusOptions(sessions);
+    return renderGazeCanvas(sessions);
   };
 
   const renderPupilSelector = (sessions, recordingsByDate = new Map()) => {
@@ -743,6 +1007,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
           pupilUserAdjusted = false;
           renderPupilChart(sessions);
+          renderGazeArea(sessions);
         })
       );
   };
@@ -904,21 +1169,20 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const selectAllPupilSessions = () => {
-    (cachedSessions || []).forEach((session) =>
-      selectedPupilSessions.add(session.sessionKey)
+    const recordingsByDate = buildRecordingsMap();
+    filterPupilSessions(cachedSessions || [], recordingsByDate).forEach(
+      (session) => selectedPupilSessions.add(session.sessionKey)
     );
     pupilUserAdjusted = false;
     pupilView = pupilBaseView ? { ...pupilBaseView } : pupilView;
-    renderPupilSelector(cachedSessions || [], buildRecordingsMap());
-    renderPupilChart(cachedSessions || []);
+    renderPupilArea(cachedSessions || [], recordingsByDate);
   };
 
   const clearAllPupilSessions = () => {
     selectedPupilSessions.clear();
     pupilUserAdjusted = false;
     pupilView = pupilBaseView ? { ...pupilBaseView } : pupilView;
-    renderPupilSelector(cachedSessions || [], buildRecordingsMap());
-    renderPupilChart(cachedSessions || []);
+    renderPupilArea(cachedSessions || [], buildRecordingsMap());
   };
 
   const handleResetDb = async () => {
@@ -944,6 +1208,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       cachedSessions = [];
       cachedRecordings = [];
+      cachedStimuliImages = [];
+      stimulusImageCache.clear();
       await renderSessionsFromDB();
       setResetStatus("База очищена.", "success");
       setStatus("", "muted");
@@ -1096,6 +1362,14 @@ document.addEventListener("DOMContentLoaded", () => {
       buildRecordingsMap(cachedRecordings || [])
     );
   });
+  gazeStimulusSelect?.addEventListener("change", () =>
+    renderGazeArea(
+      filterPupilSessions(
+        cachedSessions || [],
+        buildRecordingsMap(cachedRecordings || [])
+      )
+    )
+  );
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
   pupilClearAllBtn?.addEventListener("click", () => clearAllPupilSessions());
   resetDbButton?.addEventListener("click", async (event) => {
