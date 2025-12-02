@@ -200,14 +200,24 @@
               <label for="pupilParticipantFilter" class="form-label">
                 Фильтр по участнику
               </label>
-              <input
-                type="text"
-                class="form-control"
-                id="pupilParticipantFilter"
-                list="pupilParticipantSuggestions"
-                placeholder="Введите имя или выберите из списка"
-                autocomplete="off"
-              />
+              <div class="input-group">
+                <input
+                  type="text"
+                  class="form-control"
+                  id="pupilParticipantFilter"
+                  list="pupilParticipantSuggestions"
+                  placeholder="Введите имя или выберите из списка"
+                  autocomplete="off"
+                />
+                <button
+                  class="btn btn-outline-secondary"
+                  type="button"
+                  id="pupilParticipantClear"
+                  aria-label="Очистить фильтр участника"
+                >
+                  Очистить
+                </button>
+              </div>
               <datalist id="pupilParticipantSuggestions"></datalist>
             </div>
           </div>

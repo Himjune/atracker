@@ -21,6 +21,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilParticipantSuggestions = document.getElementById(
     "pupilParticipantSuggestions"
   );
+  const pupilParticipantClear = document.getElementById(
+    "pupilParticipantClear"
+  );
   const resetDbButton = document.getElementById("resetDbButton");
   const resetStatusElement = document.getElementById("resetStatus");
   const sectionNavLinks = Array.from(
@@ -630,8 +633,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const initialSelectionNeeded = selectedPupilSessions.size === 0;
-
     pupilSessionList.innerHTML = sessions
       .map((session, index) => {
         const metaKey = buildRecordingKey(
@@ -642,12 +643,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const experiment = meta?.experimentName || "—";
         const stimulus = meta?.stimulusName || session.stimulusName || "—";
         const participant = meta?.participantName || "—";
-        const shouldPreselect = initialSelectionNeeded && index < 3;
-        const checked =
-          shouldPreselect || selectedPupilSessions.has(session.sessionKey);
-        if (checked) {
-          selectedPupilSessions.add(session.sessionKey);
-        }
+        const checked = selectedPupilSessions.has(session.sessionKey);
         const color = stringToColor(session.sessionKey);
         return `
           <div class="form-check d-flex align-items-center gap-2 mb-2" style="color:${color}">
@@ -1008,6 +1004,16 @@ document.addEventListener("DOMContentLoaded", () => {
       buildRecordingsMap(cachedRecordings || [])
     )
   );
+  pupilParticipantClear?.addEventListener("click", () => {
+    if (pupilParticipantFilter) {
+      pupilParticipantFilter.value = "";
+      pupilParticipantFilter.focus();
+    }
+    renderPupilArea(
+      cachedSessions || [],
+      buildRecordingsMap(cachedRecordings || [])
+    );
+  });
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
   pupilClearAllBtn?.addEventListener("click", () => clearAllPupilSessions());
   resetDbButton?.addEventListener("click", async (event) => {
