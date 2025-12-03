@@ -28,7 +28,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "pupilParticipantClear"
   );
   const gazeCanvas = document.getElementById("gazeCanvas");
-  const gazeStimulusSelect = document.getElementById("gazeStimulusSelect");
+  const gazeColorMode = document.getElementById("gazeColorMode");
   const gazeStimulusStatus = document.getElementById("gazeStimulusStatus");
   const resetDbButton = document.getElementById("resetDbButton");
   const resetStatusElement = document.getElementById("resetStatus");
@@ -764,39 +764,11 @@ document.addEventListener("DOMContentLoaded", () => {
     return color;
   };
 
-  const updateGazeStimulusOptions = (sessions) => {
-    if (!gazeStimulusSelect) {
-      return;
-    }
-    const selected = getSelectedSessions(sessions);
-    const stimuli = new Set(
-      selected
-        .map((session) => (session.stimulusName || "").trim())
-        .filter(Boolean)
-    );
-
-    if (stimuli.size === 0) {
-      gazeStimulusSelect.innerHTML =
-        '<option value="">Нет выбранных стимулов</option>';
-      gazeStimulusSelect.value = "";
-      gazeStimulusSelect.dataset.currentValue = "";
-      return;
-    }
-
-    const currentValue =
-      gazeStimulusSelect.dataset.currentValue || gazeStimulusSelect.value || "";
-    const options = Array.from(stimuli)
-      .sort((a, b) => a.localeCompare(b))
-      .map((value) => `<option value="${value}">${value}</option>`);
-
-    gazeStimulusSelect.innerHTML = options.join("");
-    const nextValue = currentValue && stimuli.has(currentValue)
-      ? currentValue
-      : options.length > 0
-        ? stimuli.values().next().value
-        : "";
-    gazeStimulusSelect.value = nextValue;
-    gazeStimulusSelect.dataset.currentValue = nextValue;
+  const timeToColor = (t) => {
+    const clamp = Math.min(1, Math.max(0, t));
+    // От красного (0°) до фиолетового (~300°) без возврата к красному.
+    const hue = Math.round(300 * clamp);
+    return `hsl(${hue}, 85%, 50%)`;
   };
 
   const renderGazeCanvas = async (sessions) => {
@@ -844,14 +816,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    let stimulusName = gazeStimulusSelect?.value || "";
-    if (!stimulusName || !stimuli.includes(stimulusName)) {
-      stimulusName = stimuli[0];
-      if (gazeStimulusSelect) {
-        gazeStimulusSelect.value = stimulusName;
-        gazeStimulusSelect.dataset.currentValue = stimulusName;
-      }
-    }
+    const stimulusName = stimuli[0];
+    const hasMultipleStimuli = stimuli.length > 1;
 
     const stimulusSessions = selected.filter(
       (session) => (session.stimulusName || "").trim() === stimulusName
@@ -890,11 +856,13 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
     }
 
+    const colorMode = gazeColorMode?.value || "session";
     const points = stimulusSessions
       .flatMap((session) =>
         (session.points || []).map((point) => ({
           x: Number(point.x),
           y: Number(point.y),
+          time: Number(point.timeOffsetMs),
           sessionKey: session.sessionKey,
         }))
       )
@@ -922,15 +890,36 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    const validTimes = points
+      .map((pt) => pt.time)
+      .filter((value) => Number.isFinite(value));
+    const minTime =
+      validTimes.length > 0 ? Math.min(...validTimes) : Number.NaN;
+    const maxTime =
+      validTimes.length > 0 ? Math.max(...validTimes) : Number.NaN;
+
     setGazeStatus(
-      `Стимул: ${stimulusName}. Сессий: ${stimulusSessions.length}. Точек: ${points.length}.`,
+      `Стимул: ${stimulusName}. Сессий: ${stimulusSessions.length}. Точек: ${points.length}.${
+        hasMultipleStimuli
+          ? " Другие выбранные стимулы скрыты."
+          : ""
+      }`,
       img ? "muted" : "warning"
     );
 
-    points.forEach((pt) => {
+    points.forEach((pt, index) => {
       const px = drawRect.x + pt.x * drawRect.width;
       const py = drawRect.y + pt.y * drawRect.height;
-      const color = stringToColor(pt.sessionKey);
+      let color = stringToColor(pt.sessionKey);
+      if (colorMode === "time") {
+        let tNorm = 0;
+        if (Number.isFinite(minTime) && Number.isFinite(maxTime) && maxTime !== minTime && Number.isFinite(pt.time)) {
+          tNorm = (pt.time - minTime) / (maxTime - minTime);
+        } else if (points.length > 1) {
+          tNorm = index / (points.length - 1);
+        }
+        color = timeToColor(tNorm);
+      }
       ctx.fillStyle = color;
       ctx.strokeStyle = "#ffffffcc";
       ctx.beginPath();
@@ -955,10 +944,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
-  const renderGazeArea = (sessions) => {
-    updateGazeStimulusOptions(sessions);
-    return renderGazeCanvas(sessions);
-  };
+  const renderGazeArea = (sessions) => renderGazeCanvas(sessions);
 
   const renderPupilSelector = (sessions, recordingsByDate = new Map()) => {
     if (!pupilSessionList) {
@@ -1362,7 +1348,7 @@ document.addEventListener("DOMContentLoaded", () => {
       buildRecordingsMap(cachedRecordings || [])
     );
   });
-  gazeStimulusSelect?.addEventListener("change", () =>
+  gazeColorMode?.addEventListener("change", () =>
     renderGazeArea(
       filterPupilSessions(
         cachedSessions || [],

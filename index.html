@@ -301,15 +301,16 @@
           </p>
           <div class="row g-4">
             <div class="col-md-4 col-lg-3">
+              <p class="small text-muted mb-2" id="gazeStimulusStatus">
+                Стимул определяется выбранными сессиями.
+              </p>
               <div class="mb-3">
-                <label for="gazeStimulusSelect" class="form-label">Стимул</label>
-                <select class="form-select" id="gazeStimulusSelect">
-                  <option value="">Выберите стимул из отмеченных сессий</option>
+                <label for="gazeColorMode" class="form-label small mb-1">Режим окраски точек</label>
+                <select class="form-select form-select-sm" id="gazeColorMode">
+                  <option value="session">По сессиям</option>
+                  <option value="time">По времени (красный → синий)</option>
                 </select>
               </div>
-              <p class="small text-muted" id="gazeStimulusStatus">
-                Выберите сессии в разделе выше, чтобы отобразить точки.
-              </p>
               <div class="alert alert-light border small mb-0" role="status">
                 Координаты интерпретируются как доли экрана (0..1) и масштабируются под размер изображения стимула.
               </div>
