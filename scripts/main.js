@@ -17,6 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilChartCanvas = document.getElementById("pupilChart");
   const pupilSelectAllBtn = document.getElementById("pupilSelectAll");
   const pupilClearAllBtn = document.getElementById("pupilClearAll");
+  const pupilFilterMode = document.getElementById("pupilFilterMode");
   const pupilStimulusFilter = document.getElementById("pupilStimulusFilter");
   const pupilParticipantFilter = document.getElementById(
     "pupilParticipantFilter"
@@ -29,7 +30,11 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   const gazeCanvas = document.getElementById("gazeCanvas");
   const gazeColorMode = document.getElementById("gazeColorMode");
+  const gazeFilterMode = document.getElementById("gazeFilterMode");
+  const gazeSelectAreaBtn = document.getElementById("gazeSelectArea");
+  const gazeClearAreaBtn = document.getElementById("gazeClearArea");
   const gazeStimulusStatus = document.getElementById("gazeStimulusStatus");
+  const gazePlaybackBtn = document.getElementById("gazePlayback");
   const resetDbButton = document.getElementById("resetDbButton");
   const resetStatusElement = document.getElementById("resetStatus");
   const sectionNavLinks = Array.from(
@@ -55,6 +60,15 @@ document.addEventListener("DOMContentLoaded", () => {
   let isPanning = false;
   let panStart = null;
   const stimulusImageCache = new Map();
+  let readingAreaNorm = null;
+  let isSelectingReadingArea = false;
+  let readingSelectionStart = null;
+  let lastStimulusDrawRect = null;
+  let readingSelectionPreview = null;
+  let gazePlaybackTimer = null;
+  let gazePlaybackIndex = 0;
+  let gazePlaybackPoints = [];
+  let isGazePlaybackActive = false;
 
   const buildRecordingKey = (dateKey, stimulusName) => {
     const datePart = String(dateKey || "").trim();
@@ -126,6 +140,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
     stimulusImageCache.set(cleanName, loader);
     return loader;
+  };
+
+  const updateGazePlaybackButton = () => {
+    if (!gazePlaybackBtn) {
+      return;
+    }
+    gazePlaybackBtn.textContent = isGazePlaybackActive
+      ? "Остановить проигрывание"
+      : "Проиграть точки";
+    gazePlaybackBtn.classList.toggle("btn-danger", isGazePlaybackActive);
+    gazePlaybackBtn.classList.toggle("btn-outline-success", !isGazePlaybackActive);
+  };
+
+  const stopGazePlayback = (resetIndex = true) => {
+    if (gazePlaybackTimer) {
+      clearTimeout(gazePlaybackTimer);
+      gazePlaybackTimer = null;
+    }
+    isGazePlaybackActive = false;
+    if (resetIndex) {
+      gazePlaybackIndex = 0;
+    }
+    updateGazePlaybackButton();
   };
 
   const expandBounds = (bounds, factor = 0.05) => {
@@ -771,7 +808,92 @@ document.addEventListener("DOMContentLoaded", () => {
     return `hsl(${hue}, 85%, 50%)`;
   };
 
-  const renderGazeCanvas = async (sessions) => {
+  const applyKalman1D = (points, valueKey = "y") => {
+    if (!Array.isArray(points) || points.length === 0) {
+      return points || [];
+    }
+    const processNoise = 1e-3;
+    const measurementNoise = 5e-3;
+    const sorted = [...points].sort((a, b) => (a.x || 0) - (b.x || 0));
+    let estimate =
+      valueKey in sorted[0] && Number.isFinite(sorted[0][valueKey])
+        ? sorted[0][valueKey]
+        : 0;
+    let error = 1;
+
+    return sorted.map((pt) => {
+      const measurement =
+        valueKey in pt && Number.isFinite(pt[valueKey])
+          ? pt[valueKey]
+          : estimate;
+      const gain = error / (error + measurementNoise);
+      estimate = estimate + gain * (measurement - estimate);
+      error = (1 - gain) * error + processNoise;
+      return { ...pt, [valueKey]: estimate };
+    });
+  };
+
+  const applyKalmanFilter = (points) => {
+    if (!Array.isArray(points) || points.length === 0) {
+      return points || [];
+    }
+    const processNoise = 1e-3;
+    const measurementNoise = 5e-3;
+    let estX = Number.isFinite(points[0].x) ? points[0].x : 0;
+    let estY = Number.isFinite(points[0].y) ? points[0].y : 0;
+    let errX = 1;
+    let errY = 1;
+
+    const sorted = [...points].sort((a, b) => (a.time || 0) - (b.time || 0));
+
+    const filtered = sorted.map((pt) => {
+      const zX = Number.isFinite(pt.x) ? pt.x : estX;
+      const zY = Number.isFinite(pt.y) ? pt.y : estY;
+
+      const gainX = errX / (errX + measurementNoise);
+      const gainY = errY / (errY + measurementNoise);
+
+      estX = estX + gainX * (zX - estX);
+      estY = estY + gainY * (zY - estY);
+
+      errX = (1 - gainX) * errX + processNoise;
+      errY = (1 - gainY) * errY + processNoise;
+
+      return { ...pt, x: estX, y: estY };
+    });
+
+    return filtered;
+  };
+
+  const screenRectToNorm = (start, end, baseRect) => {
+    if (!start || !end || !baseRect) {
+      return null;
+    }
+    const clampToRect = (value, min, max) =>
+      Math.min(max, Math.max(min, value));
+    const sx = clampToRect(start.x, baseRect.x, baseRect.x + baseRect.width);
+    const sy = clampToRect(start.y, baseRect.y, baseRect.y + baseRect.height);
+    const ex = clampToRect(end.x, baseRect.x, baseRect.x + baseRect.width);
+    const ey = clampToRect(end.y, baseRect.y, baseRect.y + baseRect.height);
+    const x1 = Math.min(sx, ex);
+    const y1 = Math.min(sy, ey);
+    const x2 = Math.max(sx, ex);
+    const y2 = Math.max(sy, ey);
+    const width = Math.max(4, x2 - x1);
+    const height = Math.max(4, y2 - y1);
+    return {
+      x: (x1 - baseRect.x) / baseRect.width,
+      y: (y1 - baseRect.y) / baseRect.height,
+      width: width / baseRect.width,
+      height: height / baseRect.height,
+    };
+  };
+
+  const renderGazeCanvas = async (sessions, options = {}) => {
+    const { playbackLimit = null, preservePlayback = false } = options;
+    if (!preservePlayback) {
+      stopGazePlayback();
+    }
     if (!gazeCanvas) {
       return;
     }
@@ -790,6 +912,9 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     if (!sessions || sessions.length === 0) {
+      gazePlaybackPoints = [];
+      gazePlaybackIndex = 0;
+      updateGazePlaybackButton();
       setGazeStatus("Выберите сессии выше, чтобы построить точки.", "muted");
       emptyCanvas("Нет данных для отображения");
       return;
@@ -797,6 +922,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const selected = getSelectedSessions(sessions);
     if (selected.length === 0) {
+      gazePlaybackPoints = [];
+      gazePlaybackIndex = 0;
+      updateGazePlaybackButton();
       setGazeStatus("Отметьте сессии в блоке выбора, чтобы увидеть точки.", "warning");
       emptyCanvas("Сессии не выбраны");
       return;
@@ -811,6 +939,9 @@ document.addEventListener("DOMContentLoaded", () => {
     ).sort((a, b) => a.localeCompare(b));
 
     if (stimuli.length === 0) {
+      gazePlaybackPoints = [];
+      gazePlaybackIndex = 0;
+      updateGazePlaybackButton();
       setGazeStatus("У выбранных сессий нет названия стимула.", "warning");
       emptyCanvas("Стимул не указан");
       return;
@@ -829,6 +960,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const img = await loadStimulusImage(stimulusName);
     let drawRect = { x: 0, y: 0, width, height };
+    lastStimulusDrawRect = null;
+    readingSelectionPreview = null;
 
     if (img) {
       const imgRatio = img.width / (img.height || 1);
@@ -843,6 +976,7 @@ document.addEventListener("DOMContentLoaded", () => {
       drawRect.x = (width - drawRect.width) / 2;
       drawRect.y = (height - drawRect.height) / 2;
       ctx.drawImage(img, drawRect.x, drawRect.y, drawRect.width, drawRect.height);
+      lastStimulusDrawRect = { ...drawRect };
       setGazeStatus(
         `Стимул: ${stimulusName}. Сессий: ${stimulusSessions.length}.`,
         "muted"
@@ -857,7 +991,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const colorMode = gazeColorMode?.value || "session";
-    const points = stimulusSessions
+    const filterMode = gazeFilterMode?.value || "filtered";
+
+    const rawPoints = stimulusSessions
       .flatMap((session) =>
         (session.points || []).map((point) => ({
           x: Number(point.x),
@@ -878,8 +1014,36 @@ document.addEventListener("DOMContentLoaded", () => {
         x: Math.min(1, Math.max(0, pt.x)),
         y: Math.min(1, Math.max(0, pt.y)),
       }));
+    const filteredPoints = applyKalmanFilter(rawPoints);
 
-    if (points.length === 0) {
+    const firstHitBySession = new Map();
+    if (readingAreaNorm && lastStimulusDrawRect) {
+      filteredPoints.forEach((pt) => {
+        const px = drawRect.x + pt.x * drawRect.width;
+        const py = drawRect.y + pt.y * drawRect.height;
+        const areaX =
+          lastStimulusDrawRect.x +
+          readingAreaNorm.x * lastStimulusDrawRect.width;
+        const areaY =
+          lastStimulusDrawRect.y +
+          readingAreaNorm.y * lastStimulusDrawRect.height;
+        const areaW = readingAreaNorm.width * lastStimulusDrawRect.width;
+        const areaH = readingAreaNorm.height * lastStimulusDrawRect.height;
+        const inside =
+          px >= areaX &&
+          px <= areaX + areaW &&
+          py >= areaY &&
+          py <= areaY + areaH;
+        if (inside && !firstHitBySession.has(pt.sessionKey)) {
+          firstHitBySession.set(pt.sessionKey, pt.time);
+        }
+      });
+    }
+
+    if (rawPoints.length === 0) {
+      gazePlaybackPoints = [];
+      gazePlaybackIndex = 0;
+      updateGazePlaybackButton();
       ctx.fillStyle = "#6c757d";
       ctx.font = "13px sans-serif";
       ctx.fillText(
@@ -890,7 +1054,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const validTimes = points
+    const validTimes = filteredPoints
       .map((pt) => pt.time)
       .filter((value) => Number.isFinite(value));
     const minTime =
@@ -898,8 +1062,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const maxTime =
       validTimes.length > 0 ? Math.max(...validTimes) : Number.NaN;
 
+    const statusDetails =
+      filterMode === "both"
+        ? `Точек: ${rawPoints.length} исходных / ${filteredPoints.length} после фильтра.`
+        : `Точек: ${
+          filterMode === "raw" ? rawPoints.length : filteredPoints.length
+        }.`;
     setGazeStatus(
-      `Стимул: ${stimulusName}. Сессий: ${stimulusSessions.length}. Точек: ${points.length}.${
+      `Стимул: ${stimulusName}. Сессий: ${stimulusSessions.length}. ${statusDetails}${
         hasMultipleStimuli
           ? " Другие выбранные стимулы скрыты."
           : ""
@@ -907,26 +1077,156 @@ document.addEventListener("DOMContentLoaded", () => {
       img ? "muted" : "warning"
     );
 
-    points.forEach((pt, index) => {
-      const px = drawRect.x + pt.x * drawRect.width;
-      const py = drawRect.y + pt.y * drawRect.height;
-      let color = stringToColor(pt.sessionKey);
-      if (colorMode === "time") {
-        let tNorm = 0;
-        if (Number.isFinite(minTime) && Number.isFinite(maxTime) && maxTime !== minTime && Number.isFinite(pt.time)) {
-          tNorm = (pt.time - minTime) / (maxTime - minTime);
-        } else if (points.length > 1) {
-          tNorm = index / (points.length - 1);
+    const markReading = (pointsArr) =>
+      pointsArr.map((pt, index) => {
+        let color = stringToColor(pt.sessionKey);
+        if (colorMode === "time") {
+          let tNorm = 0;
+          if (
+            Number.isFinite(minTime) &&
+            Number.isFinite(maxTime) &&
+            maxTime !== minTime &&
+            Number.isFinite(pt.time)
+          ) {
+            tNorm = (pt.time - minTime) / (maxTime - minTime);
+          } else if (pointsArr.length > 1) {
+            tNorm = index / (pointsArr.length - 1);
+          }
+          color = timeToColor(tNorm);
         }
-        color = timeToColor(tNorm);
-      }
-      ctx.fillStyle = color;
-      ctx.strokeStyle = "#ffffffcc";
-      ctx.beginPath();
-      ctx.arc(px, py, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+
+        const firstHitTime = firstHitBySession.get(pt.sessionKey);
+        const isReading =
+          Number.isFinite(firstHitTime) &&
+          Number.isFinite(pt.time) &&
+          pt.time >= firstHitTime;
+
+        return { ...pt, color, isReading };
+      });
+
+    const filteredWithFlags = markReading(filteredPoints);
+    const rawWithFlags = markReading(rawPoints);
+    const points =
+      filterMode === "both"
+        ? [...rawWithFlags, ...filteredWithFlags]
+        : filterMode === "raw"
+          ? rawWithFlags
+          : filteredWithFlags;
+
+    const playbackSource =
+      filterMode === "raw" ? rawWithFlags : filteredWithFlags;
+    const playbackTimeline = [...playbackSource].sort((a, b) => {
+      const aTime = Number.isFinite(a.time) ? a.time : 0;
+      const bTime = Number.isFinite(b.time) ? b.time : 0;
+      return aTime - bTime;
     });
+    gazePlaybackPoints = playbackTimeline;
+    const activePlaybackLimit =
+      Number.isFinite(playbackLimit) && playbackLimit >= 0
+        ? Math.min(playbackLimit, playbackTimeline.length)
+        : null;
+    const playbackAllowed =
+      activePlaybackLimit !== null
+        ? new Set(playbackTimeline.slice(0, activePlaybackLimit).map((pt) => pt))
+        : null;
+    const applyPlaybackLimit = (arr) =>
+      playbackAllowed ? arr.filter((pt) => playbackAllowed.has(pt)) : arr;
+
+    const drawDots = (pointsArr, options = {}) => {
+      const {
+        alpha = 1,
+        size = 4,
+        outline = true,
+        readingOutline = true,
+        outlineColor = "#ffffffcc",
+      } = options;
+      pointsArr.forEach((pt) => {
+        const px = drawRect.x + pt.x * drawRect.width;
+        const py = drawRect.y + pt.y * drawRect.height;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = pt.color;
+        ctx.strokeStyle = outlineColor;
+        ctx.beginPath();
+        ctx.arc(px, py, size, 0, Math.PI * 2);
+        ctx.fill();
+        if (outline) {
+          ctx.stroke();
+        }
+        if (readingOutline && pt.isReading) {
+          ctx.strokeStyle = "#212529";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(px, py, size + 2, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.lineWidth = 1;
+        }
+        ctx.restore();
+      });
+    };
+
+    if (filterMode === "both") {
+      drawDots(applyPlaybackLimit(rawWithFlags), {
+        alpha: 0.25,
+        size: 3,
+        outline: false,
+        readingOutline: false,
+      });
+      drawDots(applyPlaybackLimit(filteredWithFlags), {
+        alpha: 1,
+        size: 4,
+        outline: true,
+        readingOutline: true,
+      });
+    } else if (filterMode === "raw") {
+      drawDots(applyPlaybackLimit(rawWithFlags), {
+        alpha: 0.9,
+        size: 4,
+        outline: true,
+        readingOutline: true,
+      });
+    } else {
+      drawDots(applyPlaybackLimit(filteredWithFlags), {
+        alpha: 1,
+        size: 4,
+        outline: true,
+        readingOutline: true,
+      });
+    }
+
+    if (readingAreaNorm && lastStimulusDrawRect) {
+      const areaX =
+        lastStimulusDrawRect.x +
+        readingAreaNorm.x * lastStimulusDrawRect.width;
+      const areaY =
+        lastStimulusDrawRect.y +
+        readingAreaNorm.y * lastStimulusDrawRect.height;
+      const areaW = readingAreaNorm.width * lastStimulusDrawRect.width;
+      const areaH = readingAreaNorm.height * lastStimulusDrawRect.height;
+      ctx.strokeStyle = "#0d6efd";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(areaX, areaY, areaW, areaH);
+      ctx.setLineDash([]);
+    }
+
+    if (readingSelectionPreview && lastStimulusDrawRect) {
+      const areaX =
+        lastStimulusDrawRect.x +
+        readingSelectionPreview.x * lastStimulusDrawRect.width;
+      const areaY =
+        lastStimulusDrawRect.y +
+        readingSelectionPreview.y * lastStimulusDrawRect.height;
+      const areaW =
+        readingSelectionPreview.width * lastStimulusDrawRect.width;
+      const areaH =
+        readingSelectionPreview.height * lastStimulusDrawRect.height;
+      ctx.strokeStyle = "#20c997";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(areaX, areaY, areaW, areaH);
+      ctx.setLineDash([]);
+    }
 
     const legendSessions = Array.from(
       new Set(points.map((pt) => pt.sessionKey))
@@ -944,7 +1244,48 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
-  const renderGazeArea = (sessions) => renderGazeCanvas(sessions);
+  const renderGazeArea = (sessions, options) => renderGazeCanvas(sessions, options);
+
+  const getCurrentFilteredSessions = () =>
+    filterPupilSessions(
+      cachedSessions || [],
+      buildRecordingsMap(cachedRecordings || [])
+    );
+
+  const gazePlaybackFrameDelayMs = 16;
+
+  const runGazePlaybackFrame = () => {
+    if (!isGazePlaybackActive) {
+      return;
+    }
+    const visibleCount = Math.min(
+      Math.max(gazePlaybackIndex, 1),
+      gazePlaybackPoints.length
+    );
+    renderGazeArea(getCurrentFilteredSessions(), {
+      playbackLimit: visibleCount,
+      preservePlayback: true,
+    });
+    if (visibleCount >= gazePlaybackPoints.length) {
+      stopGazePlayback();
+      renderGazeArea(getCurrentFilteredSessions());
+      return;
+    }
+    gazePlaybackIndex += 1;
+    gazePlaybackTimer = setTimeout(runGazePlaybackFrame, gazePlaybackFrameDelayMs);
+  };
+
+  const startGazePlayback = () => {
+    if (!gazePlaybackPoints.length) {
+      setGazeStatus("Нет точек для проигрывания.", "warning");
+      return;
+    }
+    stopGazePlayback();
+    isGazePlaybackActive = true;
+    gazePlaybackIndex = 1;
+    updateGazePlaybackButton();
+    runGazePlaybackFrame();
+  };
 
   const renderPupilSelector = (sessions, recordingsByDate = new Map()) => {
     if (!pupilSessionList) {
@@ -1007,37 +1348,89 @@ document.addEventListener("DOMContentLoaded", () => {
 
     ctx.clearRect(0, 0, width, height);
 
-    const selected = sessions.filter((s) => selectedPupilSessions.has(s.sessionKey));
-
     ctx.font = "12px sans-serif";
     ctx.fillStyle = "#6c757d";
+
+    const filterMode = pupilFilterMode?.value || "filtered";
+    const selected = sessions.filter((s) =>
+      selectedPupilSessions.has(s.sessionKey)
+    );
 
     if (selected.length === 0) {
       ctx.fillText("Выберите хотя бы одну сессию для отображения.", 16, 24);
       return;
     }
 
+    const hasReadingArea = Boolean(readingAreaNorm);
+
     const series = selected
       .map((session) => {
-        const points = (session.points || []).flatMap((p) => {
-          const left = Number.isFinite(p.pupilLeftMm) ? p.pupilLeftMm : null;
-          const right = Number.isFinite(p.pupilRightMm) ? p.pupilRightMm : null;
-          const avg =
-            left !== null && right !== null
-              ? (left + right) / 2
-              : left !== null
-                ? left
-                : right !== null
-                  ? right
-                  : null;
-          if (avg === null || !Number.isFinite(p.timeOffsetMs)) {
-            return [];
+        const rawPoints = (session.points || [])
+          .map((p) => {
+            const left = Number.isFinite(p.pupilLeftMm) ? p.pupilLeftMm : null;
+            const right = Number.isFinite(p.pupilRightMm) ? p.pupilRightMm : null;
+            const avg =
+              left !== null && right !== null
+                ? (left + right) / 2
+                : left !== null
+                  ? left
+                  : right !== null
+                    ? right
+                    : null;
+            if (avg === null || !Number.isFinite(p.timeOffsetMs)) {
+              return null;
+            }
+            return {
+              time: p.timeOffsetMs,
+              value: avg,
+              gazeX: Number.isFinite(p.x) ? p.x : null,
+              gazeY: Number.isFinite(p.y) ? p.y : null,
+            };
+          })
+          .filter(Boolean);
+
+        let firstReadingTime = null;
+        if (hasReadingArea) {
+          for (let i = 0; i < rawPoints.length; i += 1) {
+            const pt = rawPoints[i];
+            if (
+              pt.gazeX !== null &&
+              pt.gazeY !== null &&
+              pt.gazeX >= 0 &&
+              pt.gazeX <= 1 &&
+              pt.gazeY >= 0 &&
+              pt.gazeY <= 1 &&
+              pt.gazeX >= readingAreaNorm.x &&
+              pt.gazeX <= readingAreaNorm.x + readingAreaNorm.width &&
+              pt.gazeY >= readingAreaNorm.y &&
+              pt.gazeY <= readingAreaNorm.y + readingAreaNorm.height
+            ) {
+              firstReadingTime = pt.time;
+              break;
+            }
           }
-          return [{ x: p.timeOffsetMs, y: avg }];
-        });
-        return { session, points };
+        }
+
+        const points = rawPoints.map((pt) => ({
+          x: pt.time,
+          y: pt.value,
+          isReading: !hasReadingArea
+            ? true
+            : Number.isFinite(firstReadingTime) && pt.time >= firstReadingTime,
+        }));
+
+        const filteredPoints = applyKalman1D(points, "y").map((pt) => ({
+          ...pt,
+          isReading:
+            points.find((p) => p.x === pt.x)?.isReading ?? pt.isReading,
+        }));
+
+        return { session, rawPoints: points, filteredPoints };
       })
-      .filter((entry) => entry.points.length > 0);
+      .filter(
+        (entry) =>
+          entry.rawPoints.length > 0 || entry.filteredPoints.length > 0
+      );
 
     if (series.length === 0) {
       pupilDataBounds = null;
@@ -1047,9 +1440,16 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    const pointsForBounds =
+      filterMode === "raw"
+        ? series.flatMap((s) => s.rawPoints)
+        : filterMode === "both"
+          ? series.flatMap((s) => [...s.rawPoints, ...s.filteredPoints])
+          : series.flatMap((s) => s.filteredPoints);
+
     const minX = 0;
-    const maxX = Math.max(...series.flatMap((s) => s.points.map((p) => p.x)));
-    const allY = series.flatMap((s) => s.points.map((p) => p.y));
+    const maxX = Math.max(...pointsForBounds.map((p) => p.x));
+    const allY = pointsForBounds.map((p) => p.y);
     const minY = Math.min(...allY);
     const maxY = Math.max(...allY);
 
@@ -1125,23 +1525,139 @@ document.addEventListener("DOMContentLoaded", () => {
     drawXTicks();
     drawYTicks();
 
-    series.forEach(({ session, points }) => {
-      const color = stringToColor(session.sessionKey);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      points.forEach((pt, idx) => {
+    const drawPoints = (points, color, { alpha = 1, size = 3.5 } = {}) => {
+      if (!points || points.length === 0) {
+        return;
+      }
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "#ffffff";
+      points.forEach((pt) => {
         const x = scaleX(pt.x);
         const y = scaleY(pt.y);
-        if (idx === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
+        ctx.globalAlpha = alpha * (pt.isReading ? 1 : 0.35);
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+      ctx.restore();
+    };
+
+    const computeModeValue = (values, binSize = 0.05) => {
+      const bins = new Map();
+      values.forEach((val) => {
+        if (!Number.isFinite(val)) {
+          return;
+        }
+        const key = Math.round(val / binSize);
+        bins.set(key, (bins.get(key) || 0) + 1);
+      });
+      if (bins.size === 0) {
+        return null;
+      }
+      let bestKey = null;
+      let bestCount = -Infinity;
+      bins.forEach((count, key) => {
+        if (
+          count > bestCount ||
+          (count === bestCount && (bestKey === null || key < bestKey))
+        ) {
+          bestCount = count;
+          bestKey = key;
         }
       });
-      ctx.stroke();
-    });
+      return bestKey * binSize;
+    };
 
+    const drawModeLine = (value, color, label) => {
+      if (!Number.isFinite(value)) {
+        return;
+      }
+      if (value < pupilView.yMin || value > pupilView.yMax) {
+        return;
+      }
+      const y = scaleY(value);
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([5, 3]);
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(padding.left + plotW, y);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.textAlign = "right";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(label, padding.left + plotW - 6, y - 4);
+      ctx.restore();
+    };
+
+    const computeMeanValue = (values) => {
+      const finite = values.filter((v) => Number.isFinite(v));
+      if (!finite.length) {
+        return null;
+      }
+      const sum = finite.reduce((acc, v) => acc + v, 0);
+      return sum / finite.length;
+    };
+
+    const drawVerticalGrid = (stepSec = 0.5) => {
+      if (!pupilView || stepSec <= 0) {
+        return;
+      }
+      const start = Math.ceil(pupilView.xMin / stepSec) * stepSec;
+      const end = pupilView.xMax;
+      ctx.save();
+      ctx.strokeStyle = "#f1f3f5";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      for (let t = start; t <= end; t += stepSec) {
+        const x = scaleX(t);
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top);
+        ctx.lineTo(x, padding.top + plotH);
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
+
+    drawVerticalGrid(0.5);
+    series.forEach(({ session, rawPoints, filteredPoints }) => {
+      const color = stringToColor(session.sessionKey);
+      if (filterMode === "both") {
+        drawPoints(rawPoints, color, { alpha: 0.25, size: 3 });
+        drawPoints(filteredPoints, color, { alpha: 1, size: 3.6 });
+      } else if (filterMode === "raw") {
+        drawPoints(rawPoints, color, { alpha: 0.9, size: 3.4 });
+      } else {
+        drawPoints(filteredPoints, color, { alpha: 1, size: 3.6 });
+      }
+    });
+    const pointsForMode =
+      filterMode === "raw"
+        ? series.flatMap((entry) => entry.rawPoints)
+        : series.flatMap((entry) => entry.filteredPoints);
+    const modeAll = computeModeValue(pointsForMode.map((p) => p.y));
+    const modeFirstTwoSeconds = computeModeValue(
+      pointsForMode.filter((p) => Number.isFinite(p.x) && p.x <= 2).map((p) => p.y)
+    );
+    const meanAll = computeMeanValue(pointsForMode.map((p) => p.y));
+    const meanFirstTwoSeconds = computeMeanValue(
+      pointsForMode.filter((p) => Number.isFinite(p.x) && p.x <= 2).map((p) => p.y)
+    );
+    drawModeLine(modeAll, "#2f9e44", `Мода (все): ${modeAll?.toFixed(2) ?? "—"} мм`);
+    drawModeLine(
+      modeFirstTwoSeconds,
+      "#f08c00",
+      `Мода 0-2с: ${modeFirstTwoSeconds?.toFixed(2) ?? "—"} мм`
+    );
+    drawModeLine(meanAll, "#228be6", `Среднее (все): ${meanAll?.toFixed(2) ?? "—"} мм`);
+    drawModeLine(
+      meanFirstTwoSeconds,
+      "#4c6ef5",
+      `Среднее 0-2с: ${meanFirstTwoSeconds?.toFixed(2) ?? "—"} мм`
+    );
     let legendX = padding.left;
     const legendY = padding.top - 6;
     series.forEach(({ session }) => {
@@ -1300,6 +1816,93 @@ document.addEventListener("DOMContentLoaded", () => {
     panStart = null;
   };
 
+  const stopReadingSelection = () => {
+    isSelectingReadingArea = false;
+    readingSelectionStart = null;
+    readingSelectionPreview = null;
+    if (gazeCanvas) {
+      gazeCanvas.style.cursor = "";
+    }
+  };
+
+  const startReadingSelection = () => {
+    if (!lastStimulusDrawRect) {
+      setGazeStatus(
+        "Нет изображения стимула для выбора области. Загрузите изображение и выберите сессии.",
+        "warning"
+      );
+      return;
+    }
+    isSelectingReadingArea = true;
+    readingSelectionStart = null;
+    readingSelectionPreview = null;
+    if (gazeCanvas) {
+      gazeCanvas.style.cursor = "crosshair";
+    }
+    setGazeStatus(
+      "Кликните и протяните на изображении, чтобы задать область начала чтения.",
+      "primary"
+    );
+  };
+
+  const handleGazeMouseDown = (event) => {
+    if (!isSelectingReadingArea || !lastStimulusDrawRect) {
+      return;
+    }
+    readingSelectionStart = { x: event.offsetX, y: event.offsetY };
+    readingSelectionPreview = null;
+  };
+
+  const handleGazeMouseMove = (event) => {
+    if (!isSelectingReadingArea || !readingSelectionStart || !lastStimulusDrawRect) {
+      return;
+    }
+    const preview = screenRectToNorm(
+      readingSelectionStart,
+      { x: event.offsetX, y: event.offsetY },
+      lastStimulusDrawRect
+    );
+    readingSelectionPreview = preview;
+    renderGazeArea(getCurrentFilteredSessions());
+  };
+
+  const handleGazeMouseUp = (event) => {
+    if (!isSelectingReadingArea || !readingSelectionStart || !lastStimulusDrawRect) {
+      return;
+    }
+    const finalArea = screenRectToNorm(
+      readingSelectionStart,
+      { x: event.offsetX, y: event.offsetY },
+      lastStimulusDrawRect
+    );
+    if (finalArea) {
+      readingAreaNorm = finalArea;
+      setGazeStatus("Область начала чтения сохранена. Точки после входа выделены рамкой.", "success");
+    } else {
+      setGazeStatus("Не удалось вычислить область. Попробуйте снова.", "warning");
+    }
+    stopReadingSelection();
+    renderGazeArea(getCurrentFilteredSessions());
+  };
+
+  const handleGazeMouseLeave = () => {
+    if (!isSelectingReadingArea) {
+      return;
+    }
+    readingSelectionPreview = null;
+    renderGazeArea(getCurrentFilteredSessions());
+  };
+
+  const clearReadingArea = () => {
+    readingAreaNorm = null;
+    readingSelectionPreview = null;
+    stopReadingSelection();
+    renderGazeArea(getCurrentFilteredSessions());
+    setGazeStatus("Область начала чтения очищена.", "muted");
+  };
+
+  updateGazePlaybackButton();
+
   uploadButton?.addEventListener("click", async (event) => {
     event.preventDefault();
     await handleFileUpload();
@@ -1350,18 +1953,40 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   gazeColorMode?.addEventListener("change", () =>
     renderGazeArea(
-      filterPupilSessions(
-        cachedSessions || [],
-        buildRecordingsMap(cachedRecordings || [])
-      )
+      getCurrentFilteredSessions()
     )
   );
+  gazeFilterMode?.addEventListener("change", () =>
+    renderGazeArea(
+      getCurrentFilteredSessions()
+    )
+  );
+  gazePlaybackBtn?.addEventListener("click", () => {
+    if (isGazePlaybackActive) {
+      stopGazePlayback();
+      renderGazeArea(getCurrentFilteredSessions());
+    } else {
+      startGazePlayback();
+    }
+  });
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
   pupilClearAllBtn?.addEventListener("click", () => clearAllPupilSessions());
+  pupilFilterMode?.addEventListener("change", () =>
+    renderPupilArea(
+      cachedSessions || [],
+      buildRecordingsMap(cachedRecordings || [])
+    )
+  );
   resetDbButton?.addEventListener("click", async (event) => {
     event.preventDefault();
     await handleResetDb();
   });
+  gazeSelectAreaBtn?.addEventListener("click", () => startReadingSelection());
+  gazeClearAreaBtn?.addEventListener("click", () => clearReadingArea());
+  gazeCanvas?.addEventListener("mousedown", handleGazeMouseDown);
+  gazeCanvas?.addEventListener("mousemove", handleGazeMouseMove);
+  gazeCanvas?.addEventListener("mouseup", handleGazeMouseUp);
+  gazeCanvas?.addEventListener("mouseleave", handleGazeMouseLeave);
 
   initSectionNav();
   renderSessionsFromDB();

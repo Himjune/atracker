@@ -311,6 +311,27 @@
                   <option value="time">По времени (красный → синий)</option>
                 </select>
               </div>
+              <div class="mb-3">
+                <label for="gazeFilterMode" class="form-label small mb-1">Фильтрация координат</label>
+                <select class="form-select form-select-sm" id="gazeFilterMode">
+                  <option value="filtered">Только после фильтрации</option>
+                  <option value="raw">Только исходные</option>
+                  <option value="both">Исходные + фильтр</option>
+                </select>
+              </div>
+              <div class="d-grid mb-3">
+                <button type="button" class="btn btn-sm btn-outline-success" id="gazePlayback">
+                  Проиграть точки
+                </button>
+              </div>
+              <div class="d-flex flex-column gap-2 mb-3">
+                <button type="button" class="btn btn-sm btn-outline-primary" id="gazeSelectArea">
+                  Задать область начала чтения
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="gazeClearArea">
+                  Очистить область
+                </button>
+              </div>
               <div class="alert alert-light border small mb-0" role="status">
                 Координаты интерпретируются как доли экрана (0..1) и масштабируются под размер изображения стимула.
               </div>
@@ -347,6 +368,14 @@
                 График размера зрачков
                 <span class="badge bg-secondary text-light">t → диаметр</span>
               </h3>
+              <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+                <label class="small mb-0" for="pupilFilterMode">Фильтрация сигнала</label>
+                <select class="form-select form-select-sm w-auto" id="pupilFilterMode">
+                  <option value="filtered">Только после фильтрации</option>
+                  <option value="raw">Только исходные</option>
+                  <option value="both">Исходные + фильтр</option>
+                </select>
+              </div>
               <div class="border rounded-3 bg-white p-2">
                 <canvas
                   id="pupilChart"
