@@ -1,11 +1,27 @@
 const EyeTrackerDB = (() => {
   const DB_NAME = "eyeTrackerAnalytics";
-  const DB_VERSION = 8;
+  const DB_VERSION = 10;
   const STORE_NAME = "sessions";
   const RECORDINGS_STORE = "recordings";
   const STIMULI_STORE = "stimuli";
+  const VALIDITY_THRESHOLD = 128;
+  const PUPIL_MIN_MM = 2;
+  const PUPIL_MAX_MM = 8;
 
   let dbInstance;
+
+  const isPointInvalid = (raw = {}) => {
+    const validity = Number(raw.validity);
+    const pupilLeft = Number(raw.pupilLeftMm);
+    const pupilRight = Number(raw.pupilRightMm);
+    const badValidity =
+      Number.isFinite(validity) && validity < VALIDITY_THRESHOLD;
+    const badPupil = [pupilLeft, pupilRight].some(
+      (value) =>
+        Number.isFinite(value) && (value < PUPIL_MIN_MM || value > PUPIL_MAX_MM)
+    );
+    return Boolean(badValidity || badPupil);
+  };
 
   const ensurePointWithRaw = (point = {}) => {
     if (point && typeof point === "object" && !Array.isArray(point)) {
@@ -14,9 +30,13 @@ const EyeTrackerDB = (() => {
           ? { ...point.raw }
           : { ...point };
       delete raw.raw;
-      return { raw };
+      const isInvalid =
+        raw.isInvalid === true || raw.isInvalid === false
+          ? raw.isInvalid
+          : isPointInvalid(raw);
+      return { raw: { ...raw, isInvalid } };
     }
-    return { raw: {} };
+    return { raw: { isInvalid: isPointInvalid({}) } };
   };
 
   const extractRawPoints = (session = {}) => {
@@ -34,6 +54,10 @@ const EyeTrackerDB = (() => {
 
   const normalizeSessionForStorage = (session = {}) => {
     const points = extractRawPoints(session).map((pt) => ensurePointWithRaw(pt));
+    const rawInvalidCount =
+      Number.isFinite(session.rawInvalidCount) && session.rawInvalidCount >= 0
+        ? session.rawInvalidCount
+        : points.filter((pt) => pt?.raw?.isInvalid).length;
     const rawPointsCount =
       Number.isFinite(session.rawPointsCount) && session.rawPointsCount >= 0
         ? session.rawPointsCount
@@ -43,6 +67,7 @@ const EyeTrackerDB = (() => {
       ...session,
       points,
       rawPointsCount,
+      rawInvalidCount,
     };
     delete payload.raw;
     return payload;
@@ -50,6 +75,10 @@ const EyeTrackerDB = (() => {
 
   const normalizeSessionFromDb = (session = {}) => {
     const points = extractRawPoints(session).map((pt) => ensurePointWithRaw(pt));
+    const rawInvalidCount =
+      Number.isFinite(session.rawInvalidCount) && session.rawInvalidCount >= 0
+        ? session.rawInvalidCount
+        : points.filter((pt) => pt?.raw?.isInvalid).length;
     const rawPointsCount =
       Number.isFinite(session.rawPointsCount) && session.rawPointsCount >= 0
         ? session.rawPointsCount
@@ -58,6 +87,7 @@ const EyeTrackerDB = (() => {
       ...session,
       points,
       rawPointsCount,
+      rawInvalidCount,
     };
     delete normalized.raw;
     return normalized;
@@ -109,7 +139,7 @@ const EyeTrackerDB = (() => {
           stimuliStore.createIndex("uploadedAt", "uploadedAt", { unique: false });
         }
 
-        if (event.oldVersion < 8) {
+        if (event.oldVersion < 10) {
           const migrateSessions = sessionStore.getAll();
           migrateSessions.onsuccess = () => {
             (migrateSessions.result || []).forEach((session) => {

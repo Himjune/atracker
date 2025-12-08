@@ -42,6 +42,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let navSyncScheduled = false;
   const parserModule = window.eyeTrackerParser;
   const rendererModule = window.eyeTrackerRenderer;
+  const validityThresholdInput = document.getElementById("validityThreshold");
+  const pupilMinInput = document.getElementById("pupilMin");
+  const pupilMaxInput = document.getElementById("pupilMax");
 
   let cachedRecordings = [];
   let cachedSessions = [];
@@ -55,6 +58,30 @@ document.addEventListener("DOMContentLoaded", () => {
   let isPanning = false;
   let panStart = null;
   const stimulusImageCache = new Map();
+
+  const getValidityThreshold = () => {
+    const value = Math.round(Number(validityThresholdInput?.value));
+    if (Number.isFinite(value)) {
+      return Math.min(255, Math.max(0, value));
+    }
+    return 128;
+  };
+
+  const getPupilMin = () => {
+    const value = Number(pupilMinInput?.value);
+    if (Number.isFinite(value)) {
+      return Math.max(0, value);
+    }
+    return 2;
+  };
+
+  const getPupilMax = () => {
+    const value = Number(pupilMaxInput?.value);
+    if (Number.isFinite(value)) {
+      return Math.max(getPupilMin(), value);
+    }
+    return 8;
+  };
 
   const buildRecordingKey = (dateKey, stimulusName) => {
     const datePart = String(dateKey || "").trim();
@@ -90,15 +117,34 @@ document.addEventListener("DOMContentLoaded", () => {
     );
 
   const getSessionPoints = (session) => {
+    const isPointInvalid = (raw = {}) => {
+      const threshold = getValidityThreshold();
+      const validity = Number(raw.validity);
+      const pupilLeft = Number(raw.pupilLeftMm);
+      const pupilRight = Number(raw.pupilRightMm);
+      const badValidity =
+        Number.isFinite(validity) && validity < threshold;
+      const badPupil = [pupilLeft, pupilRight].some(
+        (value) =>
+          Number.isFinite(value) &&
+          (value < getPupilMin() || value > getPupilMax())
+      );
+      return Boolean(badValidity || badPupil);
+    };
+
     const normalizePointsArray = (points) =>
       points.map((pt) => {
         if (pt && typeof pt === "object" && pt.raw && typeof pt.raw === "object") {
-          return { ...pt.raw };
+          const raw = { ...pt.raw };
+          raw.isInvalid = isPointInvalid(raw);
+          return raw;
         }
         if (pt && typeof pt === "object") {
-          return { ...pt };
+          const raw = { ...pt };
+          raw.isInvalid = isPointInvalid(raw);
+          return raw;
         }
-        return {};
+        return { isInvalid: isPointInvalid({}) };
       });
 
     if (Array.isArray(session?.points)) {
@@ -605,24 +651,45 @@ document.addEventListener("DOMContentLoaded", () => {
         const stimulusName = extractStimulusFromFileName(file.name);
 
         await Promise.all(
-          sessions.map((session) =>
-            window.eyeTrackerDB.addSession({
+          sessions.map((session) => {
+            const mappedPoints = Array.isArray(session.points)
+              ? session.points.map((pt) => ({
+                  raw: (() => {
+                    const raw =
+                      pt && typeof pt === "object"
+                        ? { ...(pt.raw || pt) }
+                        : {};
+                    raw.isInvalid = (function computeInvalid() {
+                      const threshold = getValidityThreshold();
+                      const validity = Number(raw.validity);
+                      const pupilLeft = Number(raw.pupilLeftMm);
+                      const pupilRight = Number(raw.pupilRightMm);
+                      const badValidity =
+                        Number.isFinite(validity) && validity < threshold;
+                      const badPupil = [pupilLeft, pupilRight].some(
+                        (value) =>
+                          Number.isFinite(value) &&
+                          (value < getPupilMin() || value > getPupilMax())
+                      );
+                      return badValidity || badPupil;
+                    })();
+                    return raw;
+                  })(),
+                }))
+              : [];
+            const rawInvalidCount = mappedPoints.filter((p) => p?.raw?.isInvalid).length;
+            const rawPointsCount = mappedPoints.length;
+            return window.eyeTrackerDB.addSession({
               sessionKey: buildSessionKey(session.sessionKey, file.name),
               recordedAt: session.sessionKey,
               stimulusName,
-              points: Array.isArray(session.points)
-                ? session.points.map((pt) => ({
-                    raw:
-                      pt && typeof pt === "object"
-                        ? { ...(pt.raw || pt) }
-                        : {},
-                  }))
-                : [],
-              rawPointsCount: Array.isArray(session.points) ? session.points.length : 0,
+              points: mappedPoints,
+              rawPointsCount,
+              rawInvalidCount,
               createdAt: session.sessionKey,
               sourceFile: file.name,
-            })
-          )
+            });
+          })
         );
 
         savedSessions += sessions.length;

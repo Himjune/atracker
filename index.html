@@ -104,6 +104,45 @@
                 role="status"
               ></div>
             </div>
+            <div class="col-md-4">
+              <label for="validityThreshold" class="form-label">Порог валидности (0–255)</label>
+              <input
+                type="number"
+                min="0"
+                max="255"
+                step="1"
+                class="form-control"
+                id="validityThreshold"
+                value="128"
+              />
+              <div class="form-text">Точки с валидностью ниже порога помечаются как недействительные.</div>
+            </div>
+            <div class="col-md-4">
+              <label for="pupilMin" class="form-label">Минимальный размер зрачка, мм</label>
+              <input
+                type="number"
+                min="0"
+                max="20"
+                step="0.1"
+                class="form-control"
+                id="pupilMin"
+                value="2"
+              />
+              <div class="form-text">Значения ниже будут считаться недействительными.</div>
+            </div>
+            <div class="col-md-4">
+              <label for="pupilMax" class="form-label">Максимальный размер зрачка, мм</label>
+              <input
+                type="number"
+                min="0"
+                max="20"
+                step="0.1"
+                class="form-control"
+                id="pupilMax"
+                value="8"
+              />
+              <div class="form-text">Значения выше будут считаться недействительными.</div>
+            </div>
           </form>
 
           <hr class="my-4" />

@@ -62,7 +62,13 @@ const EyeTrackerRenderer = (() => {
           Number.isFinite(session.rawPointsCount) && session.rawPointsCount >= 0
             ? session.rawPointsCount
             : points.length;
+        const invalidCount =
+          Number.isFinite(session.rawInvalidCount) && session.rawInvalidCount >= 0
+            ? session.rawInvalidCount
+            : points.filter((pt) => pt && pt.isInvalid).length;
         const previewPoints = points.slice(0, 3);
+        const invalidPoints = points.filter((pt) => pt && pt.isInvalid);
+        const invalidPreview = invalidPoints.slice(0, 10);
         const metaKey = buildRecordingKey(
           session.recordedAt,
           session.stimulusName
@@ -107,6 +113,37 @@ const EyeTrackerRenderer = (() => {
           })
           .join("");
 
+        const invalidRows = invalidPreview
+          .map((point) => {
+            const time =
+              Number.isFinite(point.timeOffsetMs) && point.timeOffsetMs !== null
+                ? point.timeOffsetMs.toFixed(3)
+                : "-";
+            const x =
+              Number.isFinite(point.x) && point.x !== null ? point.x : "-";
+            const y =
+              Number.isFinite(point.y) && point.y !== null ? point.y : "-";
+            const pupilLeft =
+              Number.isFinite(point.pupilLeftMm) && point.pupilLeftMm !== null
+                ? point.pupilLeftMm
+                : "-";
+            const pupilRight =
+              Number.isFinite(point.pupilRightMm) && point.pupilRightMm !== null
+                ? point.pupilRightMm
+                : "-";
+
+            return `
+              <tr class="table-danger">
+                <td>${time}</td>
+                <td>${x}</td>
+                <td>${y}</td>
+                <td>${pupilLeft}</td>
+                <td>${pupilRight}</td>
+              </tr>
+            `;
+          })
+          .join("");
+
         const metaBadges = meta
           ? `
               <span class="tag-chip" style="--tag-bg:${experimentColor.bg}; --tag-text:${experimentColor.text};">${experiment || "—"}</span>
@@ -120,6 +157,7 @@ const EyeTrackerRenderer = (() => {
             <td class="text-nowrap">${session.sessionKey || "Без названия"}</td>
             <td>${metaBadges}</td>
             <td class="text-nowrap">${pointsCount}</td>
+            <td class="text-nowrap text-danger">${invalidCount}</td>
             <td class="text-nowrap">${source}</td>
             <td class="text-nowrap">${meta ? "OK" : "Не найдено"}</td>
             <td>
@@ -144,6 +182,31 @@ const EyeTrackerRenderer = (() => {
                     </tbody>
                   </table>
                 </div>
+                <div class="mt-3">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="small fw-semibold">Невалидные точки (до 10)</span>
+                    <span class="badge bg-danger-subtle text-danger">${invalidPoints.length}</span>
+                  </div>
+                  <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                      <thead>
+                        <tr class="table-danger">
+                          <th scope="col">t, с</th>
+                          <th scope="col">X</th>
+                          <th scope="col">Y</th>
+                          <th scope="col">Зрачок L</th>
+                          <th scope="col">Зрачок R</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${
+                          invalidRows ||
+                          `<tr><td colspan="5" class="text-muted text-center">Невалидных точек нет</td></tr>`
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </details>
             </td>
           </tr>
@@ -159,6 +222,7 @@ const EyeTrackerRenderer = (() => {
               <th scope="col">Серия</th>
               <th scope="col">Эксперимент / Стимул / Участник</th>
               <th scope="col">Точек</th>
+              <th scope="col">Невалидных</th>
               <th scope="col">Файл</th>
               <th scope="col">Статус</th>
               <th scope="col">Детали</th>
