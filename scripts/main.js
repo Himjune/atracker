@@ -45,6 +45,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const validityThresholdInput = document.getElementById("validityThreshold");
   const pupilMinInput = document.getElementById("pupilMin");
   const pupilMaxInput = document.getElementById("pupilMax");
+  const recomputePointsButton = document.getElementById("recomputePointsButton");
+  const recomputeStatusElement = document.getElementById("recomputeStatus");
 
   let cachedRecordings = [];
   let cachedSessions = [];
@@ -83,6 +85,21 @@ document.addEventListener("DOMContentLoaded", () => {
     return 8;
   };
 
+  const computePointInvalid = (raw = {}) => {
+    const threshold = getValidityThreshold();
+    const validity = Number(raw.validity);
+    const pupilLeft = Number(raw.pupilLeftMm);
+    const pupilRight = Number(raw.pupilRightMm);
+    const badValidity =
+      Number.isFinite(validity) && validity < threshold;
+    const badPupil = [pupilLeft, pupilRight].some(
+      (value) =>
+        Number.isFinite(value) &&
+        (value < getPupilMin() || value > getPupilMax())
+    );
+    return Boolean(badValidity || badPupil);
+  };
+
   const buildRecordingKey = (dateKey, stimulusName) => {
     const datePart = String(dateKey || "").trim();
     const stimPart = String(stimulusName || "").trim();
@@ -117,44 +134,28 @@ document.addEventListener("DOMContentLoaded", () => {
     );
 
   const getSessionPoints = (session) => {
-    const isPointInvalid = (raw = {}) => {
-      const threshold = getValidityThreshold();
-      const validity = Number(raw.validity);
-      const pupilLeft = Number(raw.pupilLeftMm);
-      const pupilRight = Number(raw.pupilRightMm);
-      const badValidity =
-        Number.isFinite(validity) && validity < threshold;
-      const badPupil = [pupilLeft, pupilRight].some(
-        (value) =>
-          Number.isFinite(value) &&
-          (value < getPupilMin() || value > getPupilMax())
-      );
-      return Boolean(badValidity || badPupil);
+    const normalizePointRaw = (pt) => {
+      if (pt && typeof pt === "object" && pt.raw && typeof pt.raw === "object") {
+        const raw = { ...pt.raw };
+        raw.isInvalid = computePointInvalid(raw);
+        return raw;
+      }
+      if (pt && typeof pt === "object") {
+        const raw = { ...pt };
+        raw.isInvalid = computePointInvalid(raw);
+        return raw;
+      }
+      return { isInvalid: computePointInvalid({}) };
     };
 
-    const normalizePointsArray = (points) =>
-      points.map((pt) => {
-        if (pt && typeof pt === "object" && pt.raw && typeof pt.raw === "object") {
-          const raw = { ...pt.raw };
-          raw.isInvalid = isPointInvalid(raw);
-          return raw;
-        }
-        if (pt && typeof pt === "object") {
-          const raw = { ...pt };
-          raw.isInvalid = isPointInvalid(raw);
-          return raw;
-        }
-        return { isInvalid: isPointInvalid({}) };
-      });
-
     if (Array.isArray(session?.points)) {
-      return normalizePointsArray(session.points);
+      return session.points.map(normalizePointRaw);
     }
     if (Array.isArray(session?.points?.raw)) {
-      return normalizePointsArray(session.points.raw);
+      return session.points.raw.map(normalizePointRaw);
     }
     if (Array.isArray(session?.raw?.points)) {
-      return normalizePointsArray(session.raw.points);
+      return session.raw.points.map(normalizePointRaw);
     }
     return [];
   };
@@ -305,6 +306,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     gazeStimulusStatus.textContent = message;
     gazeStimulusStatus.className = `small text-${type}`;
+  };
+
+  const setRecomputeStatus = (message, type = "muted") => {
+    if (!recomputeStatusElement) {
+      return;
+    }
+    recomputeStatusElement.textContent = message;
+    recomputeStatusElement.className = `small text-${type} mt-2`;
   };
 
   const fileToDataUrl = (file) =>
@@ -613,6 +622,47 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const recomputeStoredPoints = async () => {
+    if (!window.eyeTrackerDB) {
+      setRecomputeStatus("Хранилище недоступно.", "danger");
+      return;
+    }
+    if (!cachedSessions || cachedSessions.length === 0) {
+      setRecomputeStatus("Нет сессий для пересчета.", "warning");
+      return;
+    }
+
+    setRecomputeStatus("Пересчитываем точки по новым порогам...", "muted");
+    recomputePointsButton?.setAttribute("disabled", "disabled");
+
+    try {
+      const updatedSessions = cachedSessions.map((session) => {
+        const rawPoints = getSessionPoints(session);
+        const points = rawPoints.map((pt) => {
+          const raw = { ...pt, isInvalid: computePointInvalid(pt) };
+          return { raw };
+        });
+        return {
+          ...session,
+          points,
+          rawPointsCount: points.length,
+          rawInvalidCount: points.filter((p) => p?.raw?.isInvalid).length,
+        };
+      });
+
+      await Promise.all(
+        updatedSessions.map((session) => window.eyeTrackerDB.addSession(session))
+      );
+      await renderSessionsFromDB();
+      setRecomputeStatus("Точки пересчитаны и сохранены.", "success");
+    } catch (error) {
+      console.error(error);
+      setRecomputeStatus("Не удалось пересчитать точки. Попробуйте еще раз.", "danger");
+    } finally {
+      recomputePointsButton?.removeAttribute("disabled");
+    }
+  };
+
   const handleFileUpload = async () => {
     if (!fileInput || fileInput.files.length === 0) {
       setStatus("Выберите один или несколько CSV-файлов для обработки.", "warning");
@@ -659,20 +709,7 @@ document.addEventListener("DOMContentLoaded", () => {
                       pt && typeof pt === "object"
                         ? { ...(pt.raw || pt) }
                         : {};
-                    raw.isInvalid = (function computeInvalid() {
-                      const threshold = getValidityThreshold();
-                      const validity = Number(raw.validity);
-                      const pupilLeft = Number(raw.pupilLeftMm);
-                      const pupilRight = Number(raw.pupilRightMm);
-                      const badValidity =
-                        Number.isFinite(validity) && validity < threshold;
-                      const badPupil = [pupilLeft, pupilRight].some(
-                        (value) =>
-                          Number.isFinite(value) &&
-                          (value < getPupilMin() || value > getPupilMax())
-                      );
-                      return badValidity || badPupil;
-                    })();
+                    raw.isInvalid = computePointInvalid(raw);
                     return raw;
                   })(),
                 }))
@@ -1169,6 +1206,23 @@ document.addEventListener("DOMContentLoaded", () => {
     const scaleY = (y) =>
       padding.top + plotH - (plotH * (y - pupilView.yMin)) / rangeY;
 
+    const drawTimeGrid = () => {
+      const stepMs = 500;
+      const start = Math.ceil(pupilView.xMin / stepMs) * stepMs;
+      ctx.save();
+      ctx.strokeStyle = "#f1f3f5";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      for (let t = start; t <= pupilView.xMax; t += stepMs) {
+        const x = scaleX(t);
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top);
+        ctx.lineTo(x, padding.top + plotH);
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
+
     ctx.strokeStyle = "#dee2e6";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -1176,6 +1230,8 @@ document.addEventListener("DOMContentLoaded", () => {
     ctx.lineTo(padding.left, padding.top + plotH);
     ctx.lineTo(padding.left + plotW, padding.top + plotH);
     ctx.stroke();
+
+    drawTimeGrid();
 
     ctx.fillStyle = "#6c757d";
     ctx.fillText("t, с", width - padding.right - 30, height - 10);
@@ -1455,6 +1511,20 @@ document.addEventListener("DOMContentLoaded", () => {
       )
     )
   );
+  const handleThresholdChange = () => {
+    setRecomputeStatus(
+      "Параметры изменены. Нажмите «Пересчитать точки», чтобы обновить сохраненные данные.",
+      "warning"
+    );
+  };
+
+  [validityThresholdInput, pupilMinInput, pupilMaxInput].forEach((input) =>
+    input?.addEventListener("input", handleThresholdChange)
+  );
+  recomputePointsButton?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    await recomputeStoredPoints();
+  });
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
   pupilClearAllBtn?.addEventListener("click", () => clearAllPupilSessions());
   resetDbButton?.addEventListener("click", async (event) => {
