@@ -89,6 +89,30 @@ document.addEventListener("DOMContentLoaded", () => {
       })
     );
 
+  const getSessionPoints = (session) => {
+    const normalizePointsArray = (points) =>
+      points.map((pt) => {
+        if (pt && typeof pt === "object" && pt.raw && typeof pt.raw === "object") {
+          return { ...pt.raw };
+        }
+        if (pt && typeof pt === "object") {
+          return { ...pt };
+        }
+        return {};
+      });
+
+    if (Array.isArray(session?.points)) {
+      return normalizePointsArray(session.points);
+    }
+    if (Array.isArray(session?.points?.raw)) {
+      return normalizePointsArray(session.points.raw);
+    }
+    if (Array.isArray(session?.raw?.points)) {
+      return normalizePointsArray(session.raw.points);
+    }
+    return [];
+  };
+
   const getSelectedSessions = (sessions = []) =>
     (sessions || []).filter((session) =>
       selectedPupilSessions.has(session.sessionKey)
@@ -586,7 +610,15 @@ document.addEventListener("DOMContentLoaded", () => {
               sessionKey: buildSessionKey(session.sessionKey, file.name),
               recordedAt: session.sessionKey,
               stimulusName,
-              points: session.points,
+              points: Array.isArray(session.points)
+                ? session.points.map((pt) => ({
+                    raw:
+                      pt && typeof pt === "object"
+                        ? { ...(pt.raw || pt) }
+                        : {},
+                  }))
+                : [],
+              rawPointsCount: Array.isArray(session.points) ? session.points.length : 0,
               createdAt: session.sessionKey,
               sourceFile: file.name,
             })
@@ -859,7 +891,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const colorMode = gazeColorMode?.value || "session";
     const points = stimulusSessions
       .flatMap((session) =>
-        (session.points || []).map((point) => ({
+        getSessionPoints(session).map((point) => ({
           x: Number(point.x),
           y: Number(point.y),
           time: Number(point.timeOffsetMs),
@@ -1019,7 +1051,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const series = selected
       .map((session) => {
-        const points = (session.points || []).flatMap((p) => {
+        const points = getSessionPoints(session).flatMap((p) => {
           const left = Number.isFinite(p.pupilLeftMm) ? p.pupilLeftMm : null;
           const right = Number.isFinite(p.pupilRightMm) ? p.pupilRightMm : null;
           const avg =

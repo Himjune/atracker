@@ -20,6 +20,30 @@ const EyeTrackerRenderer = (() => {
     return { bg, text };
   };
 
+  const getSessionPoints = (session) => {
+    const normalizePointsArray = (points) =>
+      points.map((pt) => {
+        if (pt && typeof pt === "object" && pt.raw && typeof pt.raw === "object") {
+          return { ...pt.raw };
+        }
+        if (pt && typeof pt === "object") {
+          return { ...pt };
+        }
+        return {};
+      });
+
+    if (Array.isArray(session?.points)) {
+      return normalizePointsArray(session.points);
+    }
+    if (Array.isArray(session?.points?.raw)) {
+      return normalizePointsArray(session.points.raw);
+    }
+    if (Array.isArray(session?.raw?.points)) {
+      return normalizePointsArray(session.raw.points);
+    }
+    return [];
+  };
+
   const renderSessions = (container, sessions, recordingsByDate = new Map()) => {
     if (!container) {
       return;
@@ -33,8 +57,12 @@ const EyeTrackerRenderer = (() => {
 
     const rows = sessions
       .map((session) => {
-        const pointsCount = session.points?.length ?? 0;
-        const previewPoints = session.points?.slice(0, 3) ?? [];
+        const points = getSessionPoints(session);
+        const pointsCount =
+          Number.isFinite(session.rawPointsCount) && session.rawPointsCount >= 0
+            ? session.rawPointsCount
+            : points.length;
+        const previewPoints = points.slice(0, 3);
         const metaKey = buildRecordingKey(
           session.recordedAt,
           session.stimulusName

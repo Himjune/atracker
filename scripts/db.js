@@ -1,11 +1,67 @@
 const EyeTrackerDB = (() => {
   const DB_NAME = "eyeTrackerAnalytics";
-  const DB_VERSION = 4;
+  const DB_VERSION = 8;
   const STORE_NAME = "sessions";
   const RECORDINGS_STORE = "recordings";
   const STIMULI_STORE = "stimuli";
 
   let dbInstance;
+
+  const ensurePointWithRaw = (point = {}) => {
+    if (point && typeof point === "object" && !Array.isArray(point)) {
+      const raw =
+        point.raw && typeof point.raw === "object"
+          ? { ...point.raw }
+          : { ...point };
+      delete raw.raw;
+      return { raw };
+    }
+    return { raw: {} };
+  };
+
+  const extractRawPoints = (session = {}) => {
+    if (Array.isArray(session.points)) {
+      return session.points;
+    }
+    if (Array.isArray(session.points?.raw)) {
+      return session.points.raw;
+    }
+    if (Array.isArray(session.raw?.points)) {
+      return session.raw.points;
+    }
+    return [];
+  };
+
+  const normalizeSessionForStorage = (session = {}) => {
+    const points = extractRawPoints(session).map((pt) => ensurePointWithRaw(pt));
+    const rawPointsCount =
+      Number.isFinite(session.rawPointsCount) && session.rawPointsCount >= 0
+        ? session.rawPointsCount
+        : points.length;
+
+    const payload = {
+      ...session,
+      points,
+      rawPointsCount,
+    };
+    delete payload.raw;
+    return payload;
+  };
+
+  const normalizeSessionFromDb = (session = {}) => {
+    const points = extractRawPoints(session).map((pt) => ensurePointWithRaw(pt));
+    const rawPointsCount =
+      Number.isFinite(session.rawPointsCount) && session.rawPointsCount >= 0
+        ? session.rawPointsCount
+        : points.length;
+    const normalized = {
+      ...session,
+      points,
+      rawPointsCount,
+    };
+    delete normalized.raw;
+    return normalized;
+  };
 
   const openDatabase = () =>
     new Promise((resolve, reject) => {
@@ -52,6 +108,17 @@ const EyeTrackerDB = (() => {
           });
           stimuliStore.createIndex("uploadedAt", "uploadedAt", { unique: false });
         }
+
+        if (event.oldVersion < 8) {
+          const migrateSessions = sessionStore.getAll();
+          migrateSessions.onsuccess = () => {
+            (migrateSessions.result || []).forEach((session) => {
+              const updated = normalizeSessionForStorage(session);
+              updated.id = session.id;
+              sessionStore.put(updated);
+            });
+          };
+        }
       };
 
       request.onsuccess = (event) => {
@@ -68,10 +135,10 @@ const EyeTrackerDB = (() => {
       const tx = db.transaction(STORE_NAME, "readwrite");
       const store = tx.objectStore(STORE_NAME);
       const sessionIndex = store.index("sessionKey");
-      const data = {
+      const data = normalizeSessionForStorage({
         ...session,
         createdAt: session.createdAt || new Date().toISOString(),
-      };
+      });
 
       const existingReq = sessionIndex.get(session.sessionKey);
 
@@ -95,7 +162,8 @@ const EyeTrackerDB = (() => {
       const store = tx.objectStore(STORE_NAME);
       const request = store.getAll();
 
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () =>
+        resolve((request.result || []).map((session) => normalizeSessionFromDb(session)));
       request.onerror = () => reject(request.error);
     });
   };
