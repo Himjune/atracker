@@ -4,7 +4,7 @@ const EyeTrackerDB = (() => {
   const STORE_NAME = "sessions";
   const RECORDINGS_STORE = "recordings";
   const STIMULI_STORE = "stimuli";
-  const VALIDITY_THRESHOLD = 128;
+  const VALIDITY_THRESHOLD = 50;
   const PUPIL_MIN_MM = 2;
   const PUPIL_MAX_MM = 8;
 

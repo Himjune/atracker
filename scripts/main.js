@@ -27,6 +27,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilParticipantClear = document.getElementById(
     "pupilParticipantClear"
   );
+  const showLeftPupilCheckbox = document.getElementById("showLeftPupil");
+  const showRightPupilCheckbox = document.getElementById("showRightPupil");
+  const showAvgPupilCheckbox = document.getElementById("showAvgPupil");
+  const includeInvalidPupilCheckbox = document.getElementById("includeInvalidPupil");
   const gazeCanvas = document.getElementById("gazeCanvas");
   const gazeColorMode = document.getElementById("gazeColorMode");
   const gazeStimulusStatus = document.getElementById("gazeStimulusStatus");
@@ -67,7 +71,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (Number.isFinite(value)) {
       return Math.min(255, Math.max(0, value));
     }
-    return 128;
+    return 50;
   };
 
   const getPupilMin = () => {
@@ -1168,25 +1172,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const series = selected
-      .map((session) => {
-        const points = getSessionPoints(session).flatMap((p) => {
-          const left = Number.isFinite(p.pupilLeftMm) ? p.pupilLeftMm : null;
-          const right = Number.isFinite(p.pupilRightMm) ? p.pupilRightMm : null;
-          const avg =
-            left !== null && right !== null
-              ? (left + right) / 2
-              : left !== null
-                ? left
-                : right !== null
-                  ? right
-                  : null;
-          if (avg === null || !Number.isFinite(p.timeOffsetMs)) {
-            return [];
-          }
-          return [{ x: p.timeOffsetMs, y: avg }];
-        });
-        return { session, points };
-      })
+      .map((session) => ({
+        session,
+        points: getSessionPoints(session),
+      }))
       .filter((entry) => entry.points.length > 0);
 
     if (series.length === 0) {
@@ -1197,9 +1186,94 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const minX = 0;
-    const maxX = Math.max(...series.flatMap((s) => s.points.map((p) => p.x)));
-    const allY = series.flatMap((s) => s.points.map((p) => p.y));
+    const includeInvalid = includeInvalidPupilCheckbox?.checked || false;
+    const seriesConfig = [
+      {
+        key: "left",
+        label: "Левый",
+        color: "#0d6efd",
+        faded: "rgba(13, 110, 253, 0.35)",
+        enabled: showLeftPupilCheckbox?.checked !== false,
+      },
+      {
+        key: "right",
+        label: "Правый",
+        color: "#dc3545",
+        faded: "rgba(220, 53, 69, 0.35)",
+        enabled: showRightPupilCheckbox?.checked !== false,
+      },
+      {
+        key: "avg",
+        label: "Среднее",
+        color: "#198754",
+        faded: "rgba(25, 135, 84, 0.35)",
+        enabled: showAvgPupilCheckbox?.checked !== false,
+      },
+    ].filter((item) => item.enabled);
+
+    if (seriesConfig.length === 0) {
+      ctx.fillText("Включите хотя бы одну серию (левый/правый/среднее).", 16, 24);
+      return;
+    }
+
+    const allPoints = [];
+    series.forEach(({ session, points }) => {
+      points.forEach((p) => {
+        const time = p.timeOffsetMs;
+        if (!Number.isFinite(time)) {
+          return;
+        }
+        const isInvalid = Boolean(p.isInvalid);
+        if (!includeInvalid && isInvalid) {
+          return;
+        }
+        const left = Number.isFinite(p.pupilLeftMm) ? p.pupilLeftMm : null;
+        const right = Number.isFinite(p.pupilRightMm) ? p.pupilRightMm : null;
+        const avg =
+          Number.isFinite(p.pupilAvg) && p.pupilAvg !== null
+            ? p.pupilAvg
+            : left !== null && right !== null
+              ? (left + right) / 2
+              : left !== null
+                ? left
+                : right !== null
+                  ? right
+                  : null;
+
+        seriesConfig.forEach((config) => {
+          let value = null;
+          if (config.key === "left") {
+            value = left;
+          } else if (config.key === "right") {
+            value = right;
+          } else if (config.key === "avg") {
+            value = avg;
+          }
+          if (!Number.isFinite(value)) {
+            return;
+          }
+          allPoints.push({
+            x: time,
+            y: value,
+            type: config.key,
+            isInvalid,
+            sessionKey: session.sessionKey,
+          });
+        });
+      });
+    });
+
+    if (allPoints.length === 0) {
+      pupilDataBounds = null;
+      pupilBaseView = null;
+      pupilView = null;
+      ctx.fillText("Нет валидных точек для выбранных серий.", 16, 24);
+      return;
+    }
+
+    const minX = Math.min(...allPoints.map((p) => p.x), 0);
+    const maxX = Math.max(...allPoints.map((p) => p.x));
+    const allY = allPoints.map((p) => p.y);
     const minY = Math.min(...allY);
     const maxY = Math.max(...allY);
 
@@ -1221,21 +1295,27 @@ document.addEventListener("DOMContentLoaded", () => {
       padding.top + plotH - (plotH * (y - pupilView.yMin)) / rangeY;
 
     const drawTimeGrid = () => {
-      const stepMs = 500;
-      const start = Math.ceil(pupilView.xMin / stepMs) * stepMs;
+      const stepMs = 500; // каждые 500 мс
+      const start = Math.floor(pupilView.xMin / stepMs) * stepMs;
       ctx.save();
-      ctx.strokeStyle = "#f1f3f5";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "#d0d7de";
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([6, 4]);
       for (let t = start; t <= pupilView.xMax; t += stepMs) {
         const x = scaleX(t);
         ctx.beginPath();
         ctx.moveTo(x, padding.top);
         ctx.lineTo(x, padding.top + plotH);
         ctx.stroke();
+        if (t - start > 200000) {
+          break; // защита от слишком большого числа линий
+        }
       }
       ctx.restore();
     };
+
+    // сетка 500 мс на фоне
+    drawTimeGrid();
 
     ctx.strokeStyle = "#dee2e6";
     ctx.lineWidth = 1;
@@ -1244,8 +1324,6 @@ document.addEventListener("DOMContentLoaded", () => {
     ctx.lineTo(padding.left, padding.top + plotH);
     ctx.lineTo(padding.left + plotW, padding.top + plotH);
     ctx.stroke();
-
-    drawTimeGrid();
 
     ctx.fillStyle = "#6c757d";
     ctx.fillText("t, с", width - padding.right - 30, height - 10);
@@ -1256,20 +1334,22 @@ document.addEventListener("DOMContentLoaded", () => {
     ctx.restore();
 
     const drawXTicks = () => {
-      const steps = 6;
-      const step = rangeX / steps;
+      const stepMs = 500; // подписи каждые 500 мс
+      const start = Math.floor(pupilView.xMin / stepMs) * stepMs;
       ctx.fillStyle = "#6c757d";
       ctx.strokeStyle = "#e9ecef";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      for (let i = 0; i <= steps; i += 1) {
-        const val = pupilView.xMin + step * i;
-        const x = scaleX(val);
+      for (let t = start; t <= pupilView.xMax; t += stepMs) {
+        const x = scaleX(t);
         ctx.beginPath();
         ctx.moveTo(x, padding.top + plotH);
         ctx.lineTo(x, padding.top + plotH + 4);
         ctx.stroke();
-        ctx.fillText(Math.round(val), x, padding.top + plotH + 8);
+        ctx.fillText(Math.round(t), x, padding.top + plotH + 8);
+        if (t - start > 200000) {
+          break; // защита от слишком большого числа подписей
+        }
       }
     };
 
@@ -1294,29 +1374,51 @@ document.addEventListener("DOMContentLoaded", () => {
     drawXTicks();
     drawYTicks();
 
-    series.forEach(({ session, points }) => {
-      const color = stringToColor(session.sessionKey);
+    const pointsByType = seriesConfig.reduce((acc, config) => {
+      acc[config.key] = [];
+      return acc;
+    }, {});
+
+    allPoints.forEach((pt) => {
+      if (!pointsByType[pt.type]) {
+        pointsByType[pt.type] = [];
+      }
+      pointsByType[pt.type].push(pt);
+    });
+
+    const drawPoints = (points, color) => {
       ctx.fillStyle = color;
       ctx.strokeStyle = "#ffffffcc";
       points.forEach((pt) => {
         const x = scaleX(pt.x);
         const y = scaleY(pt.y);
         ctx.beginPath();
-        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.arc(x, y, 2.4, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       });
+    };
+
+    seriesConfig.forEach((config) => {
+      const points = pointsByType[config.key] || [];
+      const validPoints = points.filter((p) => !p.isInvalid);
+      const invalidPoints = points.filter((p) => p.isInvalid);
+      if (validPoints.length > 0) {
+        drawPoints(validPoints, config.color);
+      }
+      if (includeInvalid && invalidPoints.length > 0) {
+        drawPoints(invalidPoints, config.faded);
+      }
     });
 
     let legendX = padding.left;
     const legendY = padding.top - 6;
-    series.forEach(({ session }) => {
-      const color = stringToColor(session.sessionKey);
-      ctx.fillStyle = color;
+    seriesConfig.forEach((config) => {
+      ctx.fillStyle = config.color;
       ctx.fillRect(legendX, legendY - 10, 12, 12);
       ctx.fillStyle = "#495057";
-      ctx.fillText(session.sessionKey, legendX + 16, legendY);
-      legendX += ctx.measureText(session.sessionKey).width + 60;
+      ctx.fillText(config.label, legendX + 16, legendY);
+      legendX += ctx.measureText(config.label).width + 60;
     });
   };
 
@@ -1536,6 +1638,14 @@ document.addEventListener("DOMContentLoaded", () => {
     event.preventDefault();
     await recomputeStoredPoints();
   });
+  [
+    showLeftPupilCheckbox,
+    showRightPupilCheckbox,
+    showAvgPupilCheckbox,
+    includeInvalidPupilCheckbox,
+  ].forEach((checkbox) =>
+    checkbox?.addEventListener("change", () => renderPupilChart(cachedSessions || []))
+  );
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
   pupilClearAllBtn?.addEventListener("click", () => clearAllPupilSessions());
   resetDbButton?.addEventListener("click", async (event) => {
