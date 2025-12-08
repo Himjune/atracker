@@ -24,12 +24,22 @@ const EyeTrackerRenderer = (() => {
     const normalizePointsArray = (points) =>
       points.map((pt) => {
         if (pt && typeof pt === "object" && pt.raw && typeof pt.raw === "object") {
-          return { ...pt.raw };
+          const raw = { ...pt.raw };
+          raw.pupilAvg = window.eyeTrackerUtils?.computePupilAvg(
+            raw.pupilLeftMm,
+            raw.pupilRightMm
+          );
+          return raw;
         }
         if (pt && typeof pt === "object") {
-          return { ...pt };
+          const raw = { ...pt };
+          raw.pupilAvg = window.eyeTrackerUtils?.computePupilAvg(
+            raw.pupilLeftMm,
+            raw.pupilRightMm
+          );
+          return raw;
         }
-        return {};
+        return { pupilAvg: window.eyeTrackerUtils?.computePupilAvg(undefined, undefined) };
       });
 
     if (Array.isArray(session?.points)) {

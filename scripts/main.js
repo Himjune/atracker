@@ -42,6 +42,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let navSyncScheduled = false;
   const parserModule = window.eyeTrackerParser;
   const rendererModule = window.eyeTrackerRenderer;
+  const utilsModule = window.eyeTrackerUtils;
   const validityThresholdInput = document.getElementById("validityThreshold");
   const pupilMinInput = document.getElementById("pupilMin");
   const pupilMaxInput = document.getElementById("pupilMax");
@@ -84,6 +85,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     return 8;
   };
+
+  const computePupilAvg = (left, right) =>
+    utilsModule?.computePupilAvg(left, right) ?? null;
 
   const computePointInvalid = (raw = {}) => {
     const threshold = getValidityThreshold();
@@ -137,15 +141,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const normalizePointRaw = (pt) => {
       if (pt && typeof pt === "object" && pt.raw && typeof pt.raw === "object") {
         const raw = { ...pt.raw };
+        raw.pupilAvg = computePupilAvg(raw.pupilLeftMm, raw.pupilRightMm);
         raw.isInvalid = computePointInvalid(raw);
         return raw;
       }
       if (pt && typeof pt === "object") {
         const raw = { ...pt };
+        raw.pupilAvg = computePupilAvg(raw.pupilLeftMm, raw.pupilRightMm);
         raw.isInvalid = computePointInvalid(raw);
         return raw;
       }
-      return { isInvalid: computePointInvalid({}) };
+      return { pupilAvg: computePupilAvg(undefined, undefined), isInvalid: computePointInvalid({}) };
     };
 
     if (Array.isArray(session?.points)) {
@@ -639,7 +645,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const updatedSessions = cachedSessions.map((session) => {
         const rawPoints = getSessionPoints(session);
         const points = rawPoints.map((pt) => {
-          const raw = { ...pt, isInvalid: computePointInvalid(pt) };
+          const raw = {
+            ...pt,
+            pupilAvg: computePupilAvg(pt.pupilLeftMm, pt.pupilRightMm),
+            isInvalid: computePointInvalid(pt),
+          };
           return { raw };
         });
         return {
@@ -709,6 +719,10 @@ document.addEventListener("DOMContentLoaded", () => {
                       pt && typeof pt === "object"
                         ? { ...(pt.raw || pt) }
                         : {};
+                    raw.pupilAvg = computePupilAvg(
+                      raw.pupilLeftMm,
+                      raw.pupilRightMm
+                    );
                     raw.isInvalid = computePointInvalid(raw);
                     return raw;
                   })(),
@@ -1282,19 +1296,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     series.forEach(({ session, points }) => {
       const color = stringToColor(session.sessionKey);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      points.forEach((pt, idx) => {
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "#ffffffcc";
+      points.forEach((pt) => {
         const x = scaleX(pt.x);
         const y = scaleY(pt.y);
-        if (idx === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
       });
-      ctx.stroke();
     });
 
     let legendX = padding.left;

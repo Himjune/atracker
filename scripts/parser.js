@@ -57,6 +57,8 @@ const parseEyeTrackingCSV = (text) => {
       z: Number.parseFloat(z),
       pupilLeftMm: Number.parseFloat(pupilLeft),
       pupilRightMm: Number.parseFloat(pupilRight),
+      pupilAvg:
+        window.eyeTrackerUtils?.computePupilAvg(pupilLeft, pupilRight) ?? null,
     };
 
     if (Number.isNaN(point.timeOffsetMs)) {

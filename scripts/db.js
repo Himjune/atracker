@@ -30,6 +30,10 @@ const EyeTrackerDB = (() => {
           ? { ...point.raw }
           : { ...point };
       delete raw.raw;
+      raw.pupilAvg = window.eyeTrackerUtils?.computePupilAvg(
+        raw.pupilLeftMm,
+        raw.pupilRightMm
+      );
       const isInvalid =
         raw.isInvalid === true || raw.isInvalid === false
           ? raw.isInvalid
