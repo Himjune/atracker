@@ -1294,22 +1294,32 @@ document.addEventListener("DOMContentLoaded", () => {
     const scaleY = (y) =>
       padding.top + plotH - (plotH * (y - pupilView.yMin)) / rangeY;
 
+    const getTimeStepSeconds = () => {
+      const range = (pupilView?.xMax || 0) - (pupilView?.xMin || 0);
+      return range > 40 ? 1 : 0.5; // >40 c: шаг 1000 мс, иначе 500 мс
+    };
+
     const drawTimeGrid = () => {
-      const stepMs = 500; // каждые 500 мс
-      const start = Math.floor(pupilView.xMin / stepMs) * stepMs;
+      const stepSeconds = getTimeStepSeconds();
+      const start = Math.max(
+        0,
+        Math.floor(pupilView.xMin / stepSeconds) * stepSeconds
+      );
+      let drawn = 0;
       ctx.save();
       ctx.strokeStyle = "#d0d7de";
       ctx.lineWidth = 1.4;
       ctx.setLineDash([6, 4]);
-      for (let t = start; t <= pupilView.xMax; t += stepMs) {
+      for (let t = start; t <= pupilView.xMax; t += stepSeconds) {
+        if (drawn > 5000) {
+          break; // защита от слишком большого числа линий
+        }
         const x = scaleX(t);
         ctx.beginPath();
         ctx.moveTo(x, padding.top);
         ctx.lineTo(x, padding.top + plotH);
         ctx.stroke();
-        if (t - start > 200000) {
-          break; // защита от слишком большого числа линий
-        }
+        drawn += 1;
       }
       ctx.restore();
     };
@@ -1334,22 +1344,29 @@ document.addEventListener("DOMContentLoaded", () => {
     ctx.restore();
 
     const drawXTicks = () => {
-      const stepMs = 500; // подписи каждые 500 мс
-      const start = Math.floor(pupilView.xMin / stepMs) * stepMs;
+      const stepSeconds = getTimeStepSeconds();
+      const start = Math.max(
+        0,
+        Math.floor(pupilView.xMin / stepSeconds) * stepSeconds
+      );
+      const formatTime = (value) =>
+        Number.isInteger(value) ? value.toString() : value.toFixed(1);
+      let drawn = 0;
       ctx.fillStyle = "#6c757d";
       ctx.strokeStyle = "#e9ecef";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      for (let t = start; t <= pupilView.xMax; t += stepMs) {
+      for (let t = start; t <= pupilView.xMax; t += stepSeconds) {
+        if (drawn > 5000) {
+          break; // защита от слишком большого числа подписей
+        }
         const x = scaleX(t);
         ctx.beginPath();
         ctx.moveTo(x, padding.top + plotH);
         ctx.lineTo(x, padding.top + plotH + 4);
         ctx.stroke();
-        ctx.fillText(Math.round(t), x, padding.top + plotH + 8);
-        if (t - start > 200000) {
-          break; // защита от слишком большого числа подписей
-        }
+        ctx.fillText(formatTime(t), x, padding.top + plotH + 8);
+        drawn += 1;
       }
     };
 
