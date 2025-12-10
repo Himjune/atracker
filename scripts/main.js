@@ -205,7 +205,24 @@ document.addEventListener("DOMContentLoaded", () => {
       raw.rawDilationSpeedRight = rightSpeed;
     }
 
-    return computeDilationMedians(rawPoints);
+    const medians = computeDilationMedians(rawPoints);
+
+    if (medians) {
+      rawPoints.forEach((raw) => {
+        const left = Number(raw.rawDilationSpeedLeft);
+        const right = Number(raw.rawDilationSpeedRight);
+        raw.rawDilationSpeedLeftMedianDiff =
+          Number.isFinite(left) && Number.isFinite(medians.left)
+            ? Math.abs(left - medians.left)
+            : null;
+        raw.rawDilationSpeedRightMedianDiff =
+          Number.isFinite(right) && Number.isFinite(medians.right)
+            ? Math.abs(right - medians.right)
+            : null;
+      });
+    }
+
+    return medians;
   };
 
   const buildRecordingKey = (dateKey, stimulusName) => {
