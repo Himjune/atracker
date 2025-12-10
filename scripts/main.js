@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilParticipantClear = document.getElementById(
     "pupilParticipantClear"
   );
+  const showInterpolatedPupilCheckbox = document.getElementById("showInterpolatedPupil");
   const showLeftPupilCheckbox = document.getElementById("showLeftPupil");
   const showRightPupilCheckbox = document.getElementById("showRightPupil");
   const showAvgPupilCheckbox = document.getElementById("showAvgPupil");
@@ -118,11 +119,30 @@ document.addEventListener("DOMContentLoaded", () => {
     const badValidity =
       Number.isFinite(validity) && validity < threshold;
     const badPupil = [pupilLeft, pupilRight].some(
-      (value) =>
-        Number.isFinite(value) &&
-        (value < getPupilMin() || value > getPupilMax())
+        (value) =>
+          Number.isFinite(value) &&
+          (value < getPupilMin() || value > getPupilMax())
     );
     return Boolean(badValidity || badPupil);
+  };
+
+  const normalizePointRaw = (pt) => {
+    if (pt && typeof pt === "object" && pt.raw && typeof pt.raw === "object") {
+      const raw = { ...pt.raw };
+      raw.pupilAvg = computePupilAvg(raw.pupilLeftMm, raw.pupilRightMm);
+      raw.isInvalid = computePointInvalid(raw);
+      return raw;
+    }
+    if (pt && typeof pt === "object") {
+      const raw = { ...pt };
+      raw.pupilAvg = computePupilAvg(raw.pupilLeftMm, raw.pupilRightMm);
+      raw.isInvalid = computePointInvalid(raw);
+      return raw;
+    }
+    return {
+      pupilAvg: computePupilAvg(undefined, undefined),
+      isInvalid: computePointInvalid({}),
+    };
   };
 
   const computeMedian = (values = []) => {
@@ -274,6 +294,92 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   };
 
+  const interpolateValue = (
+    prevVal,
+    prevTime,
+    nextVal,
+    nextTime,
+    currTime
+  ) => {
+    const hasPrev = Number.isFinite(prevVal) && Number.isFinite(prevTime);
+    const hasNext = Number.isFinite(nextVal) && Number.isFinite(nextTime);
+    if (
+      hasPrev &&
+      hasNext &&
+      Number.isFinite(currTime) &&
+      nextTime !== prevTime
+    ) {
+      const ratio = Math.min(
+        1,
+        Math.max(0, (currTime - prevTime) / (nextTime - prevTime))
+      );
+      return prevVal + (nextVal - prevVal) * ratio;
+    }
+    if (hasPrev) {
+      return prevVal;
+    }
+    if (hasNext) {
+      return nextVal;
+    }
+    return null;
+  };
+
+  const buildInterpolatedPoints = (rawPoints = []) => {
+    if (!Array.isArray(rawPoints) || rawPoints.length === 0) {
+      return [];
+    }
+
+    return rawPoints.map((raw, index) => {
+      const base = { ...raw };
+      if (!base.isInvalid) {
+        return base;
+      }
+      const time = Number(base.timeOffsetMs);
+      const prevIdx = getValidNeighbor(rawPoints, index, -1);
+      const nextIdx = getValidNeighbor(rawPoints, index, 1);
+      const prev = prevIdx >= 0 ? rawPoints[prevIdx] : null;
+      const next = nextIdx >= 0 ? rawPoints[nextIdx] : null;
+      const left = interpolateValue(
+        Number(prev?.pupilLeftMm),
+        Number(prev?.timeOffsetMs),
+        Number(next?.pupilLeftMm),
+        Number(next?.timeOffsetMs),
+        time
+      );
+      const right = interpolateValue(
+        Number(prev?.pupilRightMm),
+        Number(prev?.timeOffsetMs),
+        Number(next?.pupilRightMm),
+        Number(next?.timeOffsetMs),
+        time
+      );
+      return {
+        ...base,
+        pupilLeftMm: left,
+        pupilRightMm: right,
+        pupilAvg: computePupilAvg(left, right),
+      };
+    });
+  };
+
+  const preparePoints = (points = []) => {
+    const rawPoints = Array.isArray(points)
+      ? points.map((pt) => normalizePointRaw(pt))
+      : [];
+    const medians = computeDilationSpeeds(rawPoints);
+    const interpolatedPoints = buildInterpolatedPoints(rawPoints);
+    const combinedPoints = rawPoints.map((raw, index) => ({
+      ...raw,
+      interpolated: interpolatedPoints[index] || { ...raw },
+    }));
+    return {
+      rawPoints,
+      interpolatedPoints,
+      combinedPoints,
+      medians,
+    };
+  };
+
   const buildRecordingKey = (dateKey, stimulusName) => {
     const datePart = String(dateKey || "").trim();
     const stimPart = String(stimulusName || "").trim();
@@ -308,25 +414,8 @@ document.addEventListener("DOMContentLoaded", () => {
     );
 
   const getSessionPoints = (session) => {
-    const normalizePointRaw = (pt) => {
-      if (pt && typeof pt === "object" && pt.raw && typeof pt.raw === "object") {
-        const raw = { ...pt.raw };
-        raw.pupilAvg = computePupilAvg(raw.pupilLeftMm, raw.pupilRightMm);
-        raw.isInvalid = computePointInvalid(raw);
-        return raw;
-      }
-      if (pt && typeof pt === "object") {
-        const raw = { ...pt };
-        raw.pupilAvg = computePupilAvg(raw.pupilLeftMm, raw.pupilRightMm);
-        raw.isInvalid = computePointInvalid(raw);
-        return raw;
-      }
-      return { pupilAvg: computePupilAvg(undefined, undefined), isInvalid: computePointInvalid({}) };
-    };
-
     if (Array.isArray(session?.points)) {
-      const rawPoints = session.points.map(normalizePointRaw);
-      const medians = computeDilationSpeeds(rawPoints);
+      const { combinedPoints, medians } = preparePoints(session.points);
       if (medians) {
         session.rawDilationSpeedLeftMedian = medians.leftMedian;
         session.rawDilationSpeedRightMedian = medians.rightMedian;
@@ -335,7 +424,7 @@ document.addEventListener("DOMContentLoaded", () => {
         session.rawDilationSpeedLeftMADThreshold = medians.leftMadThreshold;
         session.rawDilationSpeedRightMADThreshold = medians.rightMadThreshold;
       }
-      return rawPoints;
+      return combinedPoints;
     }
     /*if (Array.isArray(session?.points?.raw)) {
       const rawPoints = session.points.raw.map(normalizePointRaw);
@@ -830,17 +919,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const updatedSessions = cachedSessions.map((session) => {
-        const rawPoints = getSessionPoints(session);
-        const normalizedRawPoints = rawPoints.map((pt) => {
-          const raw = {
-            ...pt,
-            pupilAvg: computePupilAvg(pt.pupilLeftMm, pt.pupilRightMm),
-            isInvalid: computePointInvalid(pt),
-          };
-          return raw;
-        });
-        const medians = computeDilationSpeeds(normalizedRawPoints);
-        const points = normalizedRawPoints.map((raw) => ({ raw }));
+        const {
+          rawPoints: normalizedRawPoints,
+          interpolatedPoints,
+          medians,
+        } = preparePoints(session.points);
+        const points = normalizedRawPoints.map((raw, index) => ({
+          raw,
+          interpolated: interpolatedPoints[index],
+        }));
         const rawDilationSpeedLeftMedian =
           medians?.leftMedian ?? session.rawDilationSpeedLeftMedian ?? null;
         const rawDilationSpeedRightMedian =
@@ -861,7 +948,7 @@ document.addEventListener("DOMContentLoaded", () => {
           ...session,
           points,
           rawPointsCount: points.length,
-          rawInvalidCount: points.filter((p) => p?.raw?.isInvalid).length,
+          rawInvalidCount: normalizedRawPoints.filter((p) => p?.isInvalid).length,
           rawDilationSpeedLeftMAD,
           rawDilationSpeedRightMAD,
           rawDilationSpeedLeftMedian,
@@ -923,24 +1010,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
         await Promise.all(
           sessions.map((session) => {
-            const rawPoints = Array.isArray(session.points)
-              ? session.points.map((pt) => {
-                  const raw =
-                    pt && typeof pt === "object"
-                      ? { ...(pt.raw || pt) }
-                      : {};
-                  raw.pupilAvg = computePupilAvg(
-                    raw.pupilLeftMm,
-                    raw.pupilRightMm
-                  );
-                  raw.isInvalid = computePointInvalid(raw);
-                  return raw;
-                })
-              : [];
-            const medians = computeDilationSpeeds(rawPoints);
-            const mappedPoints = rawPoints.map((raw) => ({ raw }));
-            const rawInvalidCount = rawPoints.filter((p) => p?.isInvalid).length;
-            const rawPointsCount = rawPoints.length;
+            const {
+              rawPoints: normalizedRawPoints,
+              interpolatedPoints,
+              medians,
+            } = preparePoints(session.points);
+            const mappedPoints = normalizedRawPoints.map((raw, index) => ({
+              raw,
+              interpolated: interpolatedPoints[index],
+            }));
+            const rawInvalidCount = normalizedRawPoints.filter((p) => p?.isInvalid).length;
+            const rawPointsCount = normalizedRawPoints.length;
             const rawDilationSpeedLeftMedian = medians?.leftMedian ?? null;
             const rawDilationSpeedRightMedian = medians?.rightMedian ?? null;
             const rawDilationSpeedLeftMAD = medians?.leftMad ?? null;
@@ -1406,6 +1486,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const includeInvalid = includeInvalidPupilCheckbox?.checked || false;
+    const showInterpolated = showInterpolatedPupilCheckbox?.checked || false;
     const seriesConfig = [
       {
         key: "left",
@@ -1435,6 +1516,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    const interpolatedPoints = [];
     const allPoints = [];
     series.forEach(({ session, points }) => {
       points.forEach((p) => {
@@ -1443,6 +1525,27 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
         const isInvalid = Boolean(p.isInvalid);
+        if (showInterpolated && isInvalid && p.interpolated) {
+          const leftInterp = Number.isFinite(p.interpolated.pupilLeftMm)
+            ? p.interpolated.pupilLeftMm
+            : null;
+          const rightInterp = Number.isFinite(p.interpolated.pupilRightMm)
+            ? p.interpolated.pupilRightMm
+            : null;
+          const avgInterp =
+            Number.isFinite(p.interpolated.pupilAvg) && p.interpolated.pupilAvg !== null
+              ? p.interpolated.pupilAvg
+              : leftInterp !== null && rightInterp !== null
+                ? (leftInterp + rightInterp) / 2
+                : leftInterp ?? rightInterp ?? null;
+          if (Number.isFinite(avgInterp)) {
+            interpolatedPoints.push({
+              x: time,
+              y: avgInterp,
+              sessionKey: session.sessionKey,
+            });
+          }
+        }
         if (!includeInvalid && isInvalid) {
           return;
         }
@@ -1482,19 +1585,29 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    if (allPoints.length === 0) {
+    const totalPointsCount =
+      allPoints.length + (showInterpolated ? interpolatedPoints.length : 0);
+    if (totalPointsCount === 0) {
       pupilDataBounds = null;
       pupilBaseView = null;
       pupilView = null;
-      ctx.fillText("Нет валидных точек для выбранных серий.", 16, 24);
+      ctx.fillText("Нет точек для выбранных серий.", 16, 24);
       return;
     }
 
-    const minX = Math.min(...allPoints.map((p) => p.x), 0);
-    const maxX = Math.max(...allPoints.map((p) => p.x));
-    const allY = allPoints.map((p) => p.y);
-    const minY = Math.min(...allY);
-    const maxY = Math.max(...allY);
+    const xValues = [...allPoints.map((p) => p.x)];
+    const yValues = [...allPoints.map((p) => p.y)];
+    if (showInterpolated) {
+      interpolatedPoints.forEach((p) => {
+        xValues.push(p.x);
+        yValues.push(p.y);
+      });
+    }
+
+    const minX = Math.min(...xValues, 0);
+    const maxX = Math.max(...xValues);
+    const minY = Math.min(...yValues);
+    const maxY = Math.max(...yValues);
 
     pupilDataBounds = { xMin: minX, xMax: maxX, yMin: minY, yMax: maxY };
     pupilBaseView = expandBounds(pupilDataBounds);
@@ -1656,6 +1769,14 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillText(config.label, legendX + 16, legendY);
       legendX += ctx.measureText(config.label).width + 60;
     });
+    if (showInterpolated && interpolatedPoints.length > 0) {
+      const interpolatedColor = "#6f42c1";
+      drawPoints(interpolatedPoints, interpolatedColor);
+      ctx.fillStyle = interpolatedColor;
+      ctx.fillRect(legendX, legendY - 10, 12, 12);
+      ctx.fillStyle = "#495057";
+      ctx.fillText("Интерполированные", legendX + 16, legendY);
+    }
   };
 
   const selectAllPupilSessions = () => {
@@ -1878,6 +1999,7 @@ document.addEventListener("DOMContentLoaded", () => {
     showLeftPupilCheckbox,
     showRightPupilCheckbox,
     showAvgPupilCheckbox,
+    showInterpolatedPupilCheckbox,
     includeInvalidPupilCheckbox,
   ].forEach((checkbox) =>
     checkbox?.addEventListener("change", () => renderPupilChart(cachedSessions || []))

@@ -30,6 +30,7 @@ const EyeTrackerDB = (() => {
           ? { ...point.raw }
           : { ...point };
       delete raw.raw;
+      delete raw.interpolated;
       raw.pupilAvg = window.eyeTrackerUtils?.computePupilAvg(
         raw.pupilLeftMm,
         raw.pupilRightMm
@@ -38,7 +39,13 @@ const EyeTrackerDB = (() => {
         raw.isInvalid === true || raw.isInvalid === false
           ? raw.isInvalid
           : isPointInvalid(raw);
-      return { raw: { ...raw, isInvalid } };
+      const normalized = { raw: { ...raw, isInvalid } };
+      if (point.interpolated && typeof point.interpolated === "object") {
+        const interpolated = { ...point.interpolated };
+        delete interpolated.raw;
+        normalized.interpolated = interpolated;
+      }
+      return normalized;
     }
     return { raw: { isInvalid: isPointInvalid({}) } };
   };
