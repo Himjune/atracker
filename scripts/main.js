@@ -116,6 +116,30 @@ document.addEventListener("DOMContentLoaded", () => {
     return Boolean(badValidity || badPupil);
   };
 
+  const computeMedian = (values = []) => {
+    const sorted = values
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value))
+      .sort((a, b) => a - b);
+    if (sorted.length === 0) {
+      return null;
+    }
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 0) {
+      return (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+    return sorted[mid];
+  };
+
+  const computeDilationMedians = (points = []) => {
+    const leftValues = points.map((pt) => pt?.rawDilationSpeedLeft);
+    const rightValues = points.map((pt) => pt?.rawDilationSpeedRight);
+    return {
+      left: computeMedian(leftValues),
+      right: computeMedian(rightValues),
+    };
+  };
+
   const computeDilationSpeeds = (rawPoints = []) => {
     const safeSpeed = (currVal, currTime, otherVal, otherTime) => {
       if (
@@ -180,6 +204,8 @@ document.addEventListener("DOMContentLoaded", () => {
       raw.rawDilationSpeedLeft = leftSpeed;
       raw.rawDilationSpeedRight = rightSpeed;
     }
+
+    return computeDilationMedians(rawPoints);
   };
 
   const buildRecordingKey = (dateKey, stimulusName) => {
@@ -234,7 +260,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (Array.isArray(session?.points)) {
       const rawPoints = session.points.map(normalizePointRaw);
-      computeDilationSpeeds(rawPoints);
+      const medians = computeDilationSpeeds(rawPoints);
+      if (medians) {
+        session.rawDilationSpeedLeftMedian = medians.left;
+        session.rawDilationSpeedRightMedian = medians.right;
+      }
       return rawPoints;
     }
     /*if (Array.isArray(session?.points?.raw)) {
@@ -679,6 +709,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const sessions = await window.eyeTrackerDB.getSessions();
+      (sessions || []).forEach((session) => {
+        const hasLeftMedian =
+          session.rawDilationSpeedLeftMedian === null ||
+          Number.isFinite(session.rawDilationSpeedLeftMedian);
+        const hasRightMedian =
+          session.rawDilationSpeedRightMedian === null ||
+          Number.isFinite(session.rawDilationSpeedRightMedian);
+        if (!hasLeftMedian || !hasRightMedian) {
+          getSessionPoints(session);
+        }
+      });
       const recordings = (await window.eyeTrackerDB.getRecordings()) || [];
       const stimuliImages =
         typeof window.eyeTrackerDB.getStimulusImages === "function"
@@ -723,26 +764,32 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     setRecomputeStatus("Пересчитываем точки по новым порогам...", "muted");
-      recomputePointsButton?.setAttribute("disabled", "disabled");
+    recomputePointsButton?.setAttribute("disabled", "disabled");
 
-      try {
-        const updatedSessions = cachedSessions.map((session) => {
-          const rawPoints = getSessionPoints(session);
-          const normalizedRawPoints = rawPoints.map((pt) => {
-            const raw = {
-              ...pt,
-              pupilAvg: computePupilAvg(pt.pupilLeftMm, pt.pupilRightMm),
-              isInvalid: computePointInvalid(pt),
-            };
-            return raw;
-          });
-          computeDilationSpeeds(normalizedRawPoints);
-          const points = normalizedRawPoints.map((raw) => ({ raw }));
-          return {
-            ...session,
-            points,
-            rawPointsCount: points.length,
-            rawInvalidCount: points.filter((p) => p?.raw?.isInvalid).length,
+    try {
+      const updatedSessions = cachedSessions.map((session) => {
+        const rawPoints = getSessionPoints(session);
+        const normalizedRawPoints = rawPoints.map((pt) => {
+          const raw = {
+            ...pt,
+            pupilAvg: computePupilAvg(pt.pupilLeftMm, pt.pupilRightMm),
+            isInvalid: computePointInvalid(pt),
+          };
+          return raw;
+        });
+        const medians = computeDilationSpeeds(normalizedRawPoints);
+        const points = normalizedRawPoints.map((raw) => ({ raw }));
+        const rawDilationSpeedLeftMedian =
+          medians?.left ?? session.rawDilationSpeedLeftMedian ?? null;
+        const rawDilationSpeedRightMedian =
+          medians?.right ?? session.rawDilationSpeedRightMedian ?? null;
+        return {
+          ...session,
+          points,
+          rawPointsCount: points.length,
+          rawInvalidCount: points.filter((p) => p?.raw?.isInvalid).length,
+          rawDilationSpeedLeftMedian,
+          rawDilationSpeedRightMedian,
         };
       });
 
@@ -812,10 +859,12 @@ document.addEventListener("DOMContentLoaded", () => {
                   return raw;
                 })
               : [];
-            computeDilationSpeeds(rawPoints);
+            const medians = computeDilationSpeeds(rawPoints);
             const mappedPoints = rawPoints.map((raw) => ({ raw }));
             const rawInvalidCount = rawPoints.filter((p) => p?.isInvalid).length;
             const rawPointsCount = rawPoints.length;
+            const rawDilationSpeedLeftMedian = medians?.left ?? null;
+            const rawDilationSpeedRightMedian = medians?.right ?? null;
             return window.eyeTrackerDB.addSession({
               sessionKey: buildSessionKey(session.sessionKey, file.name),
               recordedAt: session.sessionKey,
@@ -823,6 +872,8 @@ document.addEventListener("DOMContentLoaded", () => {
               points: mappedPoints,
               rawPointsCount,
               rawInvalidCount,
+              rawDilationSpeedLeftMedian,
+              rawDilationSpeedRightMedian,
               createdAt: session.sessionKey,
               sourceFile: file.name,
             });
