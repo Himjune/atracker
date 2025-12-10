@@ -93,6 +93,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const computePupilAvg = (left, right) =>
     utilsModule?.computePupilAvg(left, right) ?? null;
 
+  const getValidNeighbor = (points = [], idx = 0, direction = 1) => {
+    for (let index = idx + direction; index >= 0 && index < points.length; index += direction) {
+      const point = points[index];
+      if (!point.isInvalid) return index;
+    }
+    return -1;
+  }
+
   const computePointInvalid = (raw = {}) => {
     const threshold = getValidityThreshold();
     const validity = Number(raw.validity);
@@ -106,6 +114,72 @@ document.addEventListener("DOMContentLoaded", () => {
         (value < getPupilMin() || value > getPupilMax())
     );
     return Boolean(badValidity || badPupil);
+  };
+
+  const computeDilationSpeeds = (rawPoints = []) => {
+    const safeSpeed = (currVal, currTime, otherVal, otherTime) => {
+      if (
+        !Number.isFinite(currVal) ||
+        !Number.isFinite(currTime) ||
+        !Number.isFinite(otherVal) ||
+        !Number.isFinite(otherTime)
+      ) {
+        return 0;
+      }
+      const dt = Math.abs(currTime - otherTime);
+      if (dt <= 0) {
+        return 0;
+      }
+      return Math.abs(currVal - otherVal) / dt;
+    };
+
+    if (!Array.isArray(rawPoints) || rawPoints.length === 0) {
+      return;
+    }
+
+    const len = rawPoints.length;
+
+    for (let i = 0; i < len; i += 1) {
+      const raw = rawPoints[i] || {};
+      const t = Number(raw.timeOffsetMs);
+      const leftVal = Number(raw.pupilLeftMm);
+      const rightVal = Number(raw.pupilRightMm);
+      const prevIdx = getValidNeighbor(rawPoints, i, -1);
+      const nextIdx = getValidNeighbor(rawPoints, i, 1);
+      
+      if (i == 102) console.log(prevIdx, nextIdx, rawPoints[prevIdx], rawPoints[nextIdx], i)
+
+      let leftSpeed = 0;
+      if (Number.isFinite(leftVal) && Number.isFinite(t)) {
+        const prevSpeed =
+          prevIdx >= 0 
+            ? safeSpeed(leftVal, t, rawPoints[prevIdx]?.pupilLeftMm, rawPoints[prevIdx]?.timeOffsetMs)
+            : 0;
+        const nextSpeed =
+          nextIdx >= 0
+            ? safeSpeed(rawPoints[nextIdx]?.pupilLeftMm, rawPoints[nextIdx]?.timeOffsetMs, leftVal, t)
+            : 0;
+        leftSpeed = Math.max(prevSpeed, nextSpeed);
+      }
+
+      let rightSpeed = 0;
+      if (Number.isFinite(rightVal) && Number.isFinite(t)) {
+        const prevSpeed =
+          prevIdx >= 0
+            ? safeSpeed(rightVal, t, rawPoints[prevIdx]?.pupilRightMm, rawPoints[prevIdx]?.timeOffsetMs)
+            : 0;
+        const nextSpeed =
+          nextIdx >= 0
+            ? safeSpeed(rawPoints[nextIdx]?.pupilRightMm, rawPoints[nextIdx]?.timeOffsetMs, rightVal, t)
+            : 0;
+        rightSpeed = Math.max(prevSpeed, nextSpeed);
+      if (i == 102) console.log(leftSpeed, rightSpeed, prevSpeed, nextSpeed)
+      }
+
+
+      raw.rawDilationSpeedLeft = leftSpeed;
+      raw.rawDilationSpeedRight = rightSpeed;
+    }
   };
 
   const buildRecordingKey = (dateKey, stimulusName) => {
@@ -159,14 +233,20 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     if (Array.isArray(session?.points)) {
-      return session.points.map(normalizePointRaw);
+      const rawPoints = session.points.map(normalizePointRaw);
+      computeDilationSpeeds(rawPoints);
+      return rawPoints;
     }
-    if (Array.isArray(session?.points?.raw)) {
-      return session.points.raw.map(normalizePointRaw);
+    /*if (Array.isArray(session?.points?.raw)) {
+      const rawPoints = session.points.raw.map(normalizePointRaw);
+      computeDilationSpeeds(rawPoints);
+      return rawPoints;
     }
     if (Array.isArray(session?.raw?.points)) {
-      return session.raw.points.map(normalizePointRaw);
-    }
+      const rawPoints = session.raw.points.map(normalizePointRaw);
+      computeDilationSpeeds(rawPoints);
+      return rawPoints;
+    }*/
     return [];
   };
 
@@ -643,24 +723,26 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     setRecomputeStatus("Пересчитываем точки по новым порогам...", "muted");
-    recomputePointsButton?.setAttribute("disabled", "disabled");
+      recomputePointsButton?.setAttribute("disabled", "disabled");
 
-    try {
-      const updatedSessions = cachedSessions.map((session) => {
-        const rawPoints = getSessionPoints(session);
-        const points = rawPoints.map((pt) => {
-          const raw = {
-            ...pt,
-            pupilAvg: computePupilAvg(pt.pupilLeftMm, pt.pupilRightMm),
-            isInvalid: computePointInvalid(pt),
-          };
-          return { raw };
-        });
-        return {
-          ...session,
-          points,
-          rawPointsCount: points.length,
-          rawInvalidCount: points.filter((p) => p?.raw?.isInvalid).length,
+      try {
+        const updatedSessions = cachedSessions.map((session) => {
+          const rawPoints = getSessionPoints(session);
+          const normalizedRawPoints = rawPoints.map((pt) => {
+            const raw = {
+              ...pt,
+              pupilAvg: computePupilAvg(pt.pupilLeftMm, pt.pupilRightMm),
+              isInvalid: computePointInvalid(pt),
+            };
+            return raw;
+          });
+          computeDilationSpeeds(normalizedRawPoints);
+          const points = normalizedRawPoints.map((raw) => ({ raw }));
+          return {
+            ...session,
+            points,
+            rawPointsCount: points.length,
+            rawInvalidCount: points.filter((p) => p?.raw?.isInvalid).length,
         };
       });
 
@@ -716,24 +798,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
         await Promise.all(
           sessions.map((session) => {
-            const mappedPoints = Array.isArray(session.points)
-              ? session.points.map((pt) => ({
-                  raw: (() => {
-                    const raw =
-                      pt && typeof pt === "object"
-                        ? { ...(pt.raw || pt) }
-                        : {};
-                    raw.pupilAvg = computePupilAvg(
-                      raw.pupilLeftMm,
-                      raw.pupilRightMm
-                    );
-                    raw.isInvalid = computePointInvalid(raw);
-                    return raw;
-                  })(),
-                }))
+            const rawPoints = Array.isArray(session.points)
+              ? session.points.map((pt) => {
+                  const raw =
+                    pt && typeof pt === "object"
+                      ? { ...(pt.raw || pt) }
+                      : {};
+                  raw.pupilAvg = computePupilAvg(
+                    raw.pupilLeftMm,
+                    raw.pupilRightMm
+                  );
+                  raw.isInvalid = computePointInvalid(raw);
+                  return raw;
+                })
               : [];
-            const rawInvalidCount = mappedPoints.filter((p) => p?.raw?.isInvalid).length;
-            const rawPointsCount = mappedPoints.length;
+            computeDilationSpeeds(rawPoints);
+            const mappedPoints = rawPoints.map((raw) => ({ raw }));
+            const rawInvalidCount = rawPoints.filter((p) => p?.isInvalid).length;
+            const rawPointsCount = rawPoints.length;
             return window.eyeTrackerDB.addSession({
               sessionKey: buildSessionKey(session.sessionKey, file.name),
               recordedAt: session.sessionKey,
