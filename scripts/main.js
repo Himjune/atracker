@@ -237,19 +237,40 @@ document.addEventListener("DOMContentLoaded", () => {
       rawPoints.map((pt) => pt?.rawDilationSpeedRightMedianDiff)
     );
 
+    const leftMadThreshold =
+      Number.isFinite(medians.left) && Number.isFinite(leftMad)
+        ? medians.left + madFactor * leftMad
+        : null;
+    const rightMadThreshold =
+      Number.isFinite(medians.right) && Number.isFinite(rightMad)
+        ? medians.right + madFactor * rightMad
+        : null;
+
+    if (Number.isFinite(leftMadThreshold) || Number.isFinite(rightMadThreshold)) {
+      rawPoints.forEach((raw) => {
+        const leftSpeed = Number(raw.rawDilationSpeedLeft);
+        const rightSpeed = Number(raw.rawDilationSpeedRight);
+        const leftTooFast =
+          Number.isFinite(leftMadThreshold) &&
+          Number.isFinite(leftSpeed) &&
+          leftSpeed > leftMadThreshold;
+        const rightTooFast =
+          Number.isFinite(rightMadThreshold) &&
+          Number.isFinite(rightSpeed) &&
+          rightSpeed > rightMadThreshold;
+        if (leftTooFast || rightTooFast) {
+          raw.isInvalid = true;
+        }
+      });
+    }
+
     return {
       leftMedian: medians.left,
       rightMedian: medians.right,
       leftMad,
       rightMad,
-      leftMadThreshold:
-        Number.isFinite(medians.left) && Number.isFinite(leftMad)
-          ? medians.left + madFactor * leftMad
-          : null,
-      rightMadThreshold:
-        Number.isFinite(medians.right) && Number.isFinite(rightMad)
-          ? medians.right + madFactor * rightMad
-          : null,
+      leftMadThreshold,
+      rightMadThreshold,
     };
   };
 
