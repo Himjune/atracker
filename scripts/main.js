@@ -206,7 +206,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const medians = computeDilationMedians(rawPoints);
-
     if (medians) {
       rawPoints.forEach((raw) => {
         const left = Number(raw.rawDilationSpeedLeft);
@@ -222,7 +221,19 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    return medians;
+    const leftMad = computeMedian(
+      rawPoints.map((pt) => pt?.rawDilationSpeedLeftMedianDiff)
+    );
+    const rightMad = computeMedian(
+      rawPoints.map((pt) => pt?.rawDilationSpeedRightMedianDiff)
+    );
+
+    return {
+      leftMedian: medians.left,
+      rightMedian: medians.right,
+      leftMad,
+      rightMad,
+    };
   };
 
   const buildRecordingKey = (dateKey, stimulusName) => {
@@ -279,8 +290,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const rawPoints = session.points.map(normalizePointRaw);
       const medians = computeDilationSpeeds(rawPoints);
       if (medians) {
-        session.rawDilationSpeedLeftMedian = medians.left;
-        session.rawDilationSpeedRightMedian = medians.right;
+        session.rawDilationSpeedLeftMedian = medians.leftMedian;
+        session.rawDilationSpeedRightMedian = medians.rightMedian;
+        session.rawDilationSpeedLeftMAD = medians.leftMad;
+        session.rawDilationSpeedRightMAD = medians.rightMad;
       }
       return rawPoints;
     }
@@ -733,7 +746,13 @@ document.addEventListener("DOMContentLoaded", () => {
         const hasRightMedian =
           session.rawDilationSpeedRightMedian === null ||
           Number.isFinite(session.rawDilationSpeedRightMedian);
-        if (!hasLeftMedian || !hasRightMedian) {
+        const hasLeftMAD =
+          session.rawDilationSpeedLeftMAD === null ||
+          Number.isFinite(session.rawDilationSpeedLeftMAD);
+        const hasRightMAD =
+          session.rawDilationSpeedRightMAD === null ||
+          Number.isFinite(session.rawDilationSpeedRightMAD);
+        if (!hasLeftMedian || !hasRightMedian || !hasLeftMAD || !hasRightMAD) {
           getSessionPoints(session);
         }
       });
@@ -797,14 +816,20 @@ document.addEventListener("DOMContentLoaded", () => {
         const medians = computeDilationSpeeds(normalizedRawPoints);
         const points = normalizedRawPoints.map((raw) => ({ raw }));
         const rawDilationSpeedLeftMedian =
-          medians?.left ?? session.rawDilationSpeedLeftMedian ?? null;
+          medians?.leftMedian ?? session.rawDilationSpeedLeftMedian ?? null;
         const rawDilationSpeedRightMedian =
-          medians?.right ?? session.rawDilationSpeedRightMedian ?? null;
+          medians?.rightMedian ?? session.rawDilationSpeedRightMedian ?? null;
+        const rawDilationSpeedLeftMAD =
+          medians?.leftMad ?? session.rawDilationSpeedLeftMAD ?? null;
+        const rawDilationSpeedRightMAD =
+          medians?.rightMad ?? session.rawDilationSpeedRightMAD ?? null;
         return {
           ...session,
           points,
           rawPointsCount: points.length,
           rawInvalidCount: points.filter((p) => p?.raw?.isInvalid).length,
+          rawDilationSpeedLeftMAD,
+          rawDilationSpeedRightMAD,
           rawDilationSpeedLeftMedian,
           rawDilationSpeedRightMedian,
         };
@@ -880,8 +905,10 @@ document.addEventListener("DOMContentLoaded", () => {
             const mappedPoints = rawPoints.map((raw) => ({ raw }));
             const rawInvalidCount = rawPoints.filter((p) => p?.isInvalid).length;
             const rawPointsCount = rawPoints.length;
-            const rawDilationSpeedLeftMedian = medians?.left ?? null;
-            const rawDilationSpeedRightMedian = medians?.right ?? null;
+            const rawDilationSpeedLeftMedian = medians?.leftMedian ?? null;
+            const rawDilationSpeedRightMedian = medians?.rightMedian ?? null;
+            const rawDilationSpeedLeftMAD = medians?.leftMad ?? null;
+            const rawDilationSpeedRightMAD = medians?.rightMad ?? null;
             return window.eyeTrackerDB.addSession({
               sessionKey: buildSessionKey(session.sessionKey, file.name),
               recordedAt: session.sessionKey,
@@ -889,6 +916,8 @@ document.addEventListener("DOMContentLoaded", () => {
               points: mappedPoints,
               rawPointsCount,
               rawInvalidCount,
+              rawDilationSpeedLeftMAD,
+              rawDilationSpeedRightMAD,
               rawDilationSpeedLeftMedian,
               rawDilationSpeedRightMedian,
               createdAt: session.sessionKey,
