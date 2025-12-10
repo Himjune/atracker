@@ -50,6 +50,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const validityThresholdInput = document.getElementById("validityThreshold");
   const pupilMinInput = document.getElementById("pupilMin");
   const pupilMaxInput = document.getElementById("pupilMax");
+  const madFactorInput = document.getElementById("madFactor");
   const recomputePointsButton = document.getElementById("recomputePointsButton");
   const recomputeStatusElement = document.getElementById("recomputeStatus");
 
@@ -88,6 +89,14 @@ document.addEventListener("DOMContentLoaded", () => {
       return Math.max(getPupilMin(), value);
     }
     return 8;
+  };
+
+  const getMadFactor = () => {
+    const value = Number(madFactorInput?.value);
+    if (Number.isFinite(value)) {
+      return Math.max(0, value);
+    }
+    return 3.5;
   };
 
   const computePupilAvg = (left, right) =>
@@ -140,7 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   };
 
-  const computeDilationSpeeds = (rawPoints = []) => {
+  const computeDilationSpeeds = (rawPoints = [], madFactor = getMadFactor()) => {
     const safeSpeed = (currVal, currTime, otherVal, otherTime) => {
       if (
         !Number.isFinite(currVal) ||
@@ -233,6 +242,14 @@ document.addEventListener("DOMContentLoaded", () => {
       rightMedian: medians.right,
       leftMad,
       rightMad,
+      leftMadThreshold:
+        Number.isFinite(medians.left) && Number.isFinite(leftMad)
+          ? medians.left + madFactor * leftMad
+          : null,
+      rightMadThreshold:
+        Number.isFinite(medians.right) && Number.isFinite(rightMad)
+          ? medians.right + madFactor * rightMad
+          : null,
     };
   };
 
@@ -294,6 +311,8 @@ document.addEventListener("DOMContentLoaded", () => {
         session.rawDilationSpeedRightMedian = medians.rightMedian;
         session.rawDilationSpeedLeftMAD = medians.leftMad;
         session.rawDilationSpeedRightMAD = medians.rightMad;
+        session.rawDilationSpeedLeftMADThreshold = medians.leftMadThreshold;
+        session.rawDilationSpeedRightMADThreshold = medians.rightMadThreshold;
       }
       return rawPoints;
     }
@@ -740,21 +759,7 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const sessions = await window.eyeTrackerDB.getSessions();
       (sessions || []).forEach((session) => {
-        const hasLeftMedian =
-          session.rawDilationSpeedLeftMedian === null ||
-          Number.isFinite(session.rawDilationSpeedLeftMedian);
-        const hasRightMedian =
-          session.rawDilationSpeedRightMedian === null ||
-          Number.isFinite(session.rawDilationSpeedRightMedian);
-        const hasLeftMAD =
-          session.rawDilationSpeedLeftMAD === null ||
-          Number.isFinite(session.rawDilationSpeedLeftMAD);
-        const hasRightMAD =
-          session.rawDilationSpeedRightMAD === null ||
-          Number.isFinite(session.rawDilationSpeedRightMAD);
-        if (!hasLeftMedian || !hasRightMedian || !hasLeftMAD || !hasRightMAD) {
-          getSessionPoints(session);
-        }
+        getSessionPoints(session);
       });
       const recordings = (await window.eyeTrackerDB.getRecordings()) || [];
       const stimuliImages =
@@ -823,6 +828,14 @@ document.addEventListener("DOMContentLoaded", () => {
           medians?.leftMad ?? session.rawDilationSpeedLeftMAD ?? null;
         const rawDilationSpeedRightMAD =
           medians?.rightMad ?? session.rawDilationSpeedRightMAD ?? null;
+        const rawDilationSpeedLeftMADThreshold =
+          medians?.leftMadThreshold ??
+          session.rawDilationSpeedLeftMADThreshold ??
+          null;
+        const rawDilationSpeedRightMADThreshold =
+          medians?.rightMadThreshold ??
+          session.rawDilationSpeedRightMADThreshold ??
+          null;
         return {
           ...session,
           points,
@@ -832,6 +845,8 @@ document.addEventListener("DOMContentLoaded", () => {
           rawDilationSpeedRightMAD,
           rawDilationSpeedLeftMedian,
           rawDilationSpeedRightMedian,
+          rawDilationSpeedLeftMADThreshold,
+          rawDilationSpeedRightMADThreshold,
         };
       });
 
@@ -909,6 +924,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const rawDilationSpeedRightMedian = medians?.rightMedian ?? null;
             const rawDilationSpeedLeftMAD = medians?.leftMad ?? null;
             const rawDilationSpeedRightMAD = medians?.rightMad ?? null;
+            const rawDilationSpeedLeftMADThreshold = medians?.leftMadThreshold ?? null;
+            const rawDilationSpeedRightMADThreshold = medians?.rightMadThreshold ?? null;
             return window.eyeTrackerDB.addSession({
               sessionKey: buildSessionKey(session.sessionKey, file.name),
               recordedAt: session.sessionKey,
@@ -920,6 +937,8 @@ document.addEventListener("DOMContentLoaded", () => {
               rawDilationSpeedRightMAD,
               rawDilationSpeedLeftMedian,
               rawDilationSpeedRightMedian,
+              rawDilationSpeedLeftMADThreshold,
+              rawDilationSpeedRightMADThreshold,
               createdAt: session.sessionKey,
               sourceFile: file.name,
             });
@@ -1827,7 +1846,7 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   };
 
-  [validityThresholdInput, pupilMinInput, pupilMaxInput].forEach((input) =>
+  [validityThresholdInput, pupilMinInput, pupilMaxInput, madFactorInput].forEach((input) =>
     input?.addEventListener("input", handleThresholdChange)
   );
   recomputePointsButton?.addEventListener("click", async (event) => {
