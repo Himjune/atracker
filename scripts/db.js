@@ -31,6 +31,7 @@ const EyeTrackerDB = (() => {
           : { ...point };
       delete raw.raw;
       delete raw.interpolated;
+      delete raw.smooth;
       raw.pupilAvg = window.eyeTrackerUtils?.computePupilAvg(
         raw.pupilLeftMm,
         raw.pupilRightMm
@@ -44,6 +45,12 @@ const EyeTrackerDB = (() => {
         const interpolated = { ...point.interpolated };
         delete interpolated.raw;
         normalized.interpolated = interpolated;
+      }
+      if (point.smooth && typeof point.smooth === "object") {
+        const smooth = { ...point.smooth };
+        delete smooth.raw;
+        delete smooth.interpolated;
+        normalized.smooth = smooth;
       }
       return normalized;
     }

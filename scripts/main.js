@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilParticipantClear = document.getElementById(
     "pupilParticipantClear"
   );
+  const showSmoothPupilCheckbox = document.getElementById("showSmoothPupil");
   const showInterpolatedPupilCheckbox = document.getElementById("showInterpolatedPupil");
   const showLeftPupilCheckbox = document.getElementById("showLeftPupil");
   const showRightPupilCheckbox = document.getElementById("showRightPupil");
@@ -362,19 +363,134 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
+  const computeMedianStep = (times = []) => {
+    const validTimes = times.filter((t) => Number.isFinite(t));
+    if (validTimes.length < 2) {
+      return null;
+    }
+    const diffs = [];
+    for (let i = 1; i < validTimes.length; i += 1) {
+      const curr = validTimes[i];
+      const prev = validTimes[i - 1];
+      if (Number.isFinite(curr) && Number.isFinite(prev)) {
+        const dt = Math.abs(curr - prev);
+        if (dt > 0) {
+          diffs.push(dt);
+        }
+      }
+    }
+    return computeMedian(diffs);
+  };
+
+  const buildGaussianWeights = (size) => {
+    const half = Math.floor(size / 2);
+    const sigma = Math.max(1, half / 2);
+    const weights = [];
+    for (let i = -half; i <= half; i += 1) {
+      const exponent = -((i * i) / (2 * sigma * sigma));
+      weights.push(Math.exp(exponent));
+    }
+    const sum = weights.reduce((acc, w) => acc + w, 0) || 1;
+    return weights.map((w) => w / sum);
+  };
+
+  const applyZeroPhaseLowPass = (values = [], windowSize = 5) => {
+    const sizeBase = Math.max(3, windowSize);
+    const size = sizeBase % 2 === 0 ? sizeBase + 1 : sizeBase;
+    if (values.length < 3 || size > values.length) {
+      return values.map((v) => (Number.isFinite(v) ? v : null));
+    }
+    const half = Math.floor(size / 2);
+    const weights = buildGaussianWeights(size);
+    const smooth = values.map((value, index) => {
+      let acc = 0;
+      let weightAcc = 0;
+      for (let offset = -half; offset <= half; offset += 1) {
+        const neighborIdx = index + offset;
+        if (neighborIdx < 0 || neighborIdx >= values.length) {
+          continue;
+        }
+        const neighborVal = values[neighborIdx];
+        if (!Number.isFinite(neighborVal)) {
+          continue;
+        }
+        const weight = weights[offset + half];
+        acc += neighborVal * weight;
+        weightAcc += weight;
+      }
+      if (weightAcc <= 0) {
+        return null;
+      }
+      return acc / weightAcc;
+    });
+    return smooth;
+  };
+
+  const buildSmoothedPoints = (interpolatedPoints = []) => {
+    if (!Array.isArray(interpolatedPoints) || interpolatedPoints.length === 0) {
+      return [];
+    }
+
+    const times = interpolatedPoints.map((pt) => Number(pt?.timeOffsetMs));
+    const extractSeries = (key) =>
+      interpolatedPoints.map((pt) => {
+        const value = Number(pt?.[key]);
+        return Number.isFinite(value) ? value : null;
+      });
+
+    const leftSeries = extractSeries("pupilLeftMm");
+    const rightSeries = extractSeries("pupilRightMm");
+    const avgSeries = extractSeries("pupilAvg");
+
+    const medianStep = computeMedianStep(times);
+    const baseSpan = Number.isFinite(medianStep) && medianStep > 0 ? medianStep * 9 : 9;
+    const windowSamples = (() => {
+      const len = interpolatedPoints.length;
+      let size = Math.round(baseSpan / (medianStep || 1));
+      size = Math.max(5, size);
+      if (size % 2 === 0) size += 1;
+      if (size >= len) {
+        size = len % 2 === 0 ? len - 1 : len;
+      }
+      return Math.max(3, size);
+    })();
+
+    const smoothLeft = applyZeroPhaseLowPass(leftSeries, windowSamples);
+    const smoothRight = applyZeroPhaseLowPass(rightSeries, windowSamples);
+    const smoothAvg = applyZeroPhaseLowPass(avgSeries, windowSamples);
+
+    return interpolatedPoints.map((base, index) => {
+      const pupilLeftMm = smoothLeft[index];
+      const pupilRightMm = smoothRight[index];
+      const avgCandidate = smoothAvg[index];
+      const pupilAvg = Number.isFinite(avgCandidate)
+        ? avgCandidate
+        : computePupilAvg(pupilLeftMm, pupilRightMm);
+      return {
+        ...(base || {}),
+        pupilLeftMm: Number.isFinite(pupilLeftMm) ? pupilLeftMm : null,
+        pupilRightMm: Number.isFinite(pupilRightMm) ? pupilRightMm : null,
+        pupilAvg,
+      };
+    });
+  };
+
   const preparePoints = (points = []) => {
     const rawPoints = Array.isArray(points)
       ? points.map((pt) => normalizePointRaw(pt))
       : [];
     const medians = computeDilationSpeeds(rawPoints);
     const interpolatedPoints = buildInterpolatedPoints(rawPoints);
+    const smoothPoints = buildSmoothedPoints(interpolatedPoints);
     const combinedPoints = rawPoints.map((raw, index) => ({
       ...raw,
       interpolated: interpolatedPoints[index] || { ...raw },
+      smooth: smoothPoints[index] || interpolatedPoints[index] || { ...raw },
     }));
     return {
       rawPoints,
       interpolatedPoints,
+      smoothPoints,
       combinedPoints,
       medians,
     };
@@ -922,11 +1038,13 @@ document.addEventListener("DOMContentLoaded", () => {
         const {
           rawPoints: normalizedRawPoints,
           interpolatedPoints,
+          smoothPoints,
           medians,
         } = preparePoints(session.points);
         const points = normalizedRawPoints.map((raw, index) => ({
           raw,
           interpolated: interpolatedPoints[index],
+          smooth: smoothPoints[index],
         }));
         const rawDilationSpeedLeftMedian =
           medians?.leftMedian ?? session.rawDilationSpeedLeftMedian ?? null;
@@ -1013,11 +1131,13 @@ document.addEventListener("DOMContentLoaded", () => {
             const {
               rawPoints: normalizedRawPoints,
               interpolatedPoints,
+              smoothPoints,
               medians,
             } = preparePoints(session.points);
             const mappedPoints = normalizedRawPoints.map((raw, index) => ({
               raw,
               interpolated: interpolatedPoints[index],
+              smooth: smoothPoints[index],
             }));
             const rawInvalidCount = normalizedRawPoints.filter((p) => p?.isInvalid).length;
             const rawPointsCount = normalizedRawPoints.length;
@@ -1487,6 +1607,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const includeInvalid = includeInvalidPupilCheckbox?.checked || false;
     const showInterpolated = showInterpolatedPupilCheckbox?.checked || false;
+    const showSmooth = showSmoothPupilCheckbox?.checked || false;
     const seriesConfig = [
       {
         key: "left",
@@ -1511,12 +1632,14 @@ document.addEventListener("DOMContentLoaded", () => {
       },
     ].filter((item) => item.enabled);
 
-    if (seriesConfig.length === 0) {
+    if (seriesConfig.length === 0 && !showInterpolated && !showSmooth) {
       ctx.fillText("Включите хотя бы одну серию (левый/правый/среднее).", 16, 24);
       return;
     }
 
     const interpolatedPoints = [];
+    const smoothPointsBySession = new Map();
+    let smoothCombined = [];
     const allPoints = [];
     series.forEach(({ session, points }) => {
       points.forEach((p) => {
@@ -1544,6 +1667,26 @@ document.addEventListener("DOMContentLoaded", () => {
               y: avgInterp,
               sessionKey: session.sessionKey,
             });
+          }
+        }
+        if (showSmooth && p.smooth) {
+          const smoothLeft = Number.isFinite(p.smooth.pupilLeftMm)
+            ? p.smooth.pupilLeftMm
+            : null;
+          const smoothRight = Number.isFinite(p.smooth.pupilRightMm)
+            ? p.smooth.pupilRightMm
+            : null;
+          const smoothAvg =
+            Number.isFinite(p.smooth.pupilAvg) && p.smooth.pupilAvg !== null
+              ? p.smooth.pupilAvg
+              : computePupilAvg(smoothLeft, smoothRight);
+          if (Number.isFinite(smoothAvg)) {
+            if (!smoothPointsBySession.has(session.sessionKey)) {
+              smoothPointsBySession.set(session.sessionKey, []);
+            }
+            const entry = { x: time, y: smoothAvg, sessionKey: session.sessionKey };
+            smoothPointsBySession.get(session.sessionKey).push(entry);
+            smoothCombined.push(entry);
           }
         }
         if (!includeInvalid && isInvalid) {
@@ -1586,7 +1729,9 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     const totalPointsCount =
-      allPoints.length + (showInterpolated ? interpolatedPoints.length : 0);
+      allPoints.length +
+      (showInterpolated ? interpolatedPoints.length : 0) +
+      (showSmooth ? smoothCombined.length : 0);
     if (totalPointsCount === 0) {
       pupilDataBounds = null;
       pupilBaseView = null;
@@ -1599,6 +1744,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const yValues = [...allPoints.map((p) => p.y)];
     if (showInterpolated) {
       interpolatedPoints.forEach((p) => {
+        xValues.push(p.x);
+        yValues.push(p.y);
+      });
+    }
+    if (showSmooth) {
+      smoothCombined.forEach((p) => {
         xValues.push(p.x);
         yValues.push(p.y);
       });
@@ -1735,6 +1886,26 @@ document.addEventListener("DOMContentLoaded", () => {
       pointsByType[pt.type].push(pt);
     });
 
+    const drawLine = (points, color) => {
+      if (!points || points.length === 0) {
+        return;
+      }
+      const sorted = [...points].sort((a, b) => a.x - b.x);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      sorted.forEach((pt, idx) => {
+        const x = scaleX(pt.x);
+        const y = scaleY(pt.y);
+        if (idx === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+      ctx.stroke();
+    };
+
     const drawPoints = (points, color) => {
       ctx.fillStyle = color;
       ctx.strokeStyle = "#ffffffcc";
@@ -1776,6 +1947,15 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillRect(legendX, legendY - 10, 12, 12);
       ctx.fillStyle = "#495057";
       ctx.fillText("Интерполированные", legendX + 16, legendY);
+      legendX += ctx.measureText("Интерполированные").width + 80;
+    }
+    if (showSmooth && smoothCombined.length > 0) {
+      const smoothColor = "#0dcaf0";
+      smoothPointsBySession.forEach((pts) => drawLine(pts, smoothColor));
+      ctx.fillStyle = smoothColor;
+      ctx.fillRect(legendX, legendY - 10, 12, 12);
+      ctx.fillStyle = "#495057";
+      ctx.fillText("Сглаженные (линия)", legendX + 16, legendY);
     }
   };
 
@@ -2000,6 +2180,7 @@ document.addEventListener("DOMContentLoaded", () => {
     showRightPupilCheckbox,
     showAvgPupilCheckbox,
     showInterpolatedPupilCheckbox,
+    showSmoothPupilCheckbox,
     includeInvalidPupilCheckbox,
   ].forEach((checkbox) =>
     checkbox?.addEventListener("change", () => renderPupilChart(cachedSessions || []))
