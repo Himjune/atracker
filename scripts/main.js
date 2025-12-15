@@ -49,6 +49,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const parserModule = window.eyeTrackerParser;
   const rendererModule = window.eyeTrackerRenderer;
   const utilsModule = window.eyeTrackerUtils;
+  const baselineModule = window.eyeTrackerBaseline;
   const validityThresholdInput = document.getElementById("validityThreshold");
   const pupilMinInput = document.getElementById("pupilMin");
   const pupilMaxInput = document.getElementById("pupilMax");
@@ -482,6 +483,22 @@ document.addEventListener("DOMContentLoaded", () => {
     const medians = computeDilationSpeeds(rawPoints);
     const interpolatedPoints = buildInterpolatedPoints(rawPoints);
     const smoothPoints = buildSmoothedPoints(interpolatedPoints);
+    const interpolatedBaselines =
+      baselineModule?.computeBaselineWindows(interpolatedPoints) ?? [];
+    const smoothBaselines =
+      baselineModule?.computeBaselineWindows(smoothPoints) ?? [];
+
+    interpolatedPoints.forEach((pt, index) => {
+      if (pt) {
+        pt.baselineWindow = interpolatedBaselines[index];
+      }
+    });
+    smoothPoints.forEach((pt, index) => {
+      if (pt) {
+        pt.baselineWindow = smoothBaselines[index];
+      }
+    });
+
     const combinedPoints = rawPoints.map((raw, index) => ({
       ...raw,
       interpolated: interpolatedPoints[index] || { ...raw },

@@ -1,6 +1,7 @@
 const EyeTrackerDB = (() => {
   const DB_NAME = "eyeTrackerAnalytics";
-  const DB_VERSION = 10;
+  // Incremented to 11 after baseline computation changes
+  const DB_VERSION = 11;
   const STORE_NAME = "sessions";
   const RECORDINGS_STORE = "recordings";
   const STIMULI_STORE = "stimuli";
@@ -167,6 +168,7 @@ const EyeTrackerDB = (() => {
             });
           };
         }
+        // future migrations for versions >=11 can be added here
       };
 
       request.onsuccess = (event) => {
