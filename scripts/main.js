@@ -48,8 +48,6 @@ document.addEventListener("DOMContentLoaded", () => {
   let navSyncScheduled = false;
   const parserModule = window.eyeTrackerParser;
   const rendererModule = window.eyeTrackerRenderer;
-
-  const baselineModule = window.baselineFinder;
   const utilsModule = window.eyeTrackerUtils;
   const validityThresholdInput = document.getElementById("validityThreshold");
   const pupilMinInput = document.getElementById("pupilMin");
@@ -1064,9 +1062,6 @@ document.addEventListener("DOMContentLoaded", () => {
           medians?.rightMadThreshold ??
           session.rawDilationSpeedRightMADThreshold ??
           null;
-
-        const baseline = baselineModule.calculateSessionBaseline(points)
-
         return {
           ...session,
           points,
@@ -1078,7 +1073,6 @@ document.addEventListener("DOMContentLoaded", () => {
           rawDilationSpeedRightMedian,
           rawDilationSpeedLeftMADThreshold,
           rawDilationSpeedRightMADThreshold,
-          baseline
         };
       });
 

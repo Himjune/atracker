@@ -1,6 +1,6 @@
 const EyeTrackerDB = (() => {
   const DB_NAME = "eyeTrackerAnalytics";
-  const DB_VERSION = 11;
+  const DB_VERSION = 10;
   const STORE_NAME = "sessions";
   const RECORDINGS_STORE = "recordings";
   const STIMULI_STORE = "stimuli";
