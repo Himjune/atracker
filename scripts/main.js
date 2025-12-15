@@ -29,6 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   const zoomXAxisInBtn = document.getElementById("zoomXAxisIn");
   const zoomXAxisOutBtn = document.getElementById("zoomXAxisOut");
+  const baselineWindowSizeInput = document.getElementById("baselineWindowSize");
   const zoomPupilYInBtn = document.getElementById("zoomPupilYIn");
   const zoomPupilYOutBtn = document.getElementById("zoomPupilYOut");
   const zoomVarianceYInBtn = document.getElementById("zoomVarianceYIn");
@@ -119,6 +120,16 @@ document.addEventListener("DOMContentLoaded", () => {
       return Math.max(0, value);
     }
     return 3.5;
+  };
+
+  const getBaselineWindowSize = () => {
+    const fallback =
+      Number(baselineModule?.DEFAULT_WINDOW_SIZE_SECONDS) || 0.5;
+    const value = Number(baselineWindowSizeInput?.value);
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    return fallback;
   };
 
   const computePupilAvg = (left, right) =>
@@ -502,10 +513,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const medians = computeDilationSpeeds(rawPoints);
     const interpolatedPoints = buildInterpolatedPoints(rawPoints);
     const smoothPoints = buildSmoothedPoints(interpolatedPoints);
+    const windowSize = getBaselineWindowSize();
     const interpolatedBaselines =
-      baselineModule?.computeBaselineWindows(interpolatedPoints) ?? [];
+      baselineModule?.computeBaselineWindows(interpolatedPoints, windowSize) ?? [];
     const smoothBaselines =
-      baselineModule?.computeBaselineWindows(smoothPoints) ?? [];
+      baselineModule?.computeBaselineWindows(smoothPoints, windowSize) ?? [];
 
     interpolatedPoints.forEach((pt, index) => {
       if (pt) {
@@ -2100,7 +2112,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    drawAxesOverlay();
 
     let legendX = padding.left;
     const legendY = padding.top - 6;
@@ -2146,6 +2157,9 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillStyle = "#495057";
       ctx.fillText("Variance (smooth)", legendX + 16, legendY);
     }
+
+
+    drawAxesOverlay();
   };
 
   const selectAllPupilSessions = () => {
@@ -2462,6 +2476,9 @@ document.addEventListener("DOMContentLoaded", () => {
   shiftXAxisLeftBtn?.addEventListener("click", () => shiftXAxis("left"));
   shiftXAxisRightBtn?.addEventListener("click", () => shiftXAxis("right"));
   gotoTimeBtn?.addEventListener("click", gotoTime);
+  baselineWindowSizeInput?.addEventListener("change", () =>
+    renderPupilChart(cachedSessions || [])
+  );
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
   pupilClearAllBtn?.addEventListener("click", () => clearAllPupilSessions());
   resetDbButton?.addEventListener("click", async (event) => {
