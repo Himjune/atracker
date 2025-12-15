@@ -27,8 +27,24 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilParticipantClear = document.getElementById(
     "pupilParticipantClear"
   );
+  const zoomXAxisInBtn = document.getElementById("zoomXAxisIn");
+  const zoomXAxisOutBtn = document.getElementById("zoomXAxisOut");
+  const zoomPupilYInBtn = document.getElementById("zoomPupilYIn");
+  const zoomPupilYOutBtn = document.getElementById("zoomPupilYOut");
+  const zoomVarianceYInBtn = document.getElementById("zoomVarianceYIn");
+  const zoomVarianceYOutBtn = document.getElementById("zoomVarianceYOut");
+  const shiftPupilYUpBtn = document.getElementById("shiftPupilYUp");
+  const shiftPupilYDownBtn = document.getElementById("shiftPupilYDown");
+  const shiftVarianceYUpBtn = document.getElementById("shiftVarianceYUp");
+  const shiftVarianceYDownBtn = document.getElementById("shiftVarianceYDown");
+  const shiftXAxisLeftBtn = document.getElementById("shiftXAxisLeft");
+  const shiftXAxisRightBtn = document.getElementById("shiftXAxisRight");
+  const gotoTimeInput = document.getElementById("gotoTimeValue");
+  const gotoTimeBtn = document.getElementById("gotoTimeBtn");
   const showSmoothPupilCheckbox = document.getElementById("showSmoothPupil");
+  const showSmoothVarianceCheckbox = document.getElementById("showSmoothVariance");
   const showInterpolatedPupilCheckbox = document.getElementById("showInterpolatedPupil");
+  const showInterpolatedVarianceCheckbox = document.getElementById("showInterpolatedVariance");
   const showLeftPupilCheckbox = document.getElementById("showLeftPupil");
   const showRightPupilCheckbox = document.getElementById("showRightPupil");
   const showAvgPupilCheckbox = document.getElementById("showAvgPupil");
@@ -66,6 +82,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let pupilDataBounds = null;
   let pupilBaseView = null;
   let pupilUserAdjusted = false;
+  let varianceView = null;
+  let varianceBaseView = null;
+  let varianceUserAdjusted = false;
   let isPanning = false;
   let panStart = null;
   const stimulusImageCache = new Map();
@@ -1625,6 +1644,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const includeInvalid = includeInvalidPupilCheckbox?.checked || false;
     const showInterpolated = showInterpolatedPupilCheckbox?.checked || false;
     const showSmooth = showSmoothPupilCheckbox?.checked || false;
+    const showInterpolatedVariance =
+      showInterpolatedVarianceCheckbox?.checked || false;
+    const showSmoothVariance = showSmoothVarianceCheckbox?.checked || false;
     const seriesConfig = [
       {
         key: "left",
@@ -1657,6 +1679,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const interpolatedPoints = [];
     const smoothPointsBySession = new Map();
     let smoothCombined = [];
+    const varianceInterpolatedPoints = [];
+    const varianceSmoothPoints = [];
     const allPoints = [];
     series.forEach(({ session, points }) => {
       points.forEach((p) => {
@@ -1706,6 +1730,26 @@ document.addEventListener("DOMContentLoaded", () => {
             smoothCombined.push(entry);
           }
         }
+        if (showInterpolatedVariance && p.interpolated?.baselineWindow) {
+          const variance = Number(p.interpolated.baselineWindow.variance);
+          if (Number.isFinite(variance)) {
+            varianceInterpolatedPoints.push({
+              x: time,
+              y: variance,
+              sessionKey: session.sessionKey,
+            });
+          }
+        }
+        if (showSmoothVariance && p.smooth?.baselineWindow) {
+          const variance = Number(p.smooth.baselineWindow.variance);
+          if (Number.isFinite(variance)) {
+            varianceSmoothPoints.push({
+              x: time,
+              y: variance,
+              sessionKey: session.sessionKey,
+            });
+          }
+        }
         if (!includeInvalid && isInvalid) {
           return;
         }
@@ -1748,7 +1792,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const totalPointsCount =
       allPoints.length +
       (showInterpolated ? interpolatedPoints.length : 0) +
-      (showSmooth ? smoothCombined.length : 0);
+      (showSmooth ? smoothCombined.length : 0) +
+      (showInterpolatedVariance ? varianceInterpolatedPoints.length : 0) +
+      (showSmoothVariance ? varianceSmoothPoints.length : 0);
     if (totalPointsCount === 0) {
       pupilDataBounds = null;
       pupilBaseView = null;
@@ -1758,24 +1804,41 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const xValues = [...allPoints.map((p) => p.x)];
-    const yValues = [...allPoints.map((p) => p.y)];
+    const pupilYValues = [...allPoints.map((p) => p.y)];
     if (showInterpolated) {
       interpolatedPoints.forEach((p) => {
         xValues.push(p.x);
-        yValues.push(p.y);
+        pupilYValues.push(p.y);
       });
     }
     if (showSmooth) {
       smoothCombined.forEach((p) => {
         xValues.push(p.x);
-        yValues.push(p.y);
+        pupilYValues.push(p.y);
+      });
+    }
+    if (showInterpolatedVariance) {
+      varianceInterpolatedPoints.forEach((p) => {
+        xValues.push(p.x);
+      });
+    }
+    if (showSmoothVariance) {
+      varianceSmoothPoints.forEach((p) => {
+        xValues.push(p.x);
       });
     }
 
+    const varianceYValues = [
+      ...(showInterpolatedVariance ? varianceInterpolatedPoints.map((p) => p.y) : []),
+      ...(showSmoothVariance ? varianceSmoothPoints.map((p) => p.y) : []),
+    ];
+
     const minX = Math.min(...xValues, 0);
     const maxX = Math.max(...xValues);
-    const minY = Math.min(...yValues);
-    const maxY = Math.max(...yValues);
+    const minY =
+      pupilYValues.length > 0 ? Math.min(...pupilYValues) : 0;
+    const maxY =
+      pupilYValues.length > 0 ? Math.max(...pupilYValues) : 1;
 
     pupilDataBounds = { xMin: minX, xMax: maxX, yMin: minY, yMax: maxY };
     pupilBaseView = expandBounds(pupilDataBounds);
@@ -1789,10 +1852,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const rangeX = safeRange(pupilView.xMax - pupilView.xMin, 1);
     const rangeY = safeRange(pupilView.yMax - pupilView.yMin, 1);
+    const varianceFinite = varianceYValues.filter((v) => Number.isFinite(v));
+    const varianceMin =
+      varianceFinite.length > 0 ? Math.min(...varianceFinite) : 0;
+    const varianceMax =
+      varianceFinite.length > 0 ? Math.max(...varianceFinite) : 1;
+    const varianceRange = safeRange(varianceMax - varianceMin, 1);
+    const variancePadding = varianceRange * 0.1;
+    const varianceBase = {
+      min: varianceMin - variancePadding,
+      max: varianceMax + variancePadding,
+    };
+    varianceBaseView = varianceBase;
+    if (!varianceView || !varianceUserAdjusted) {
+      varianceView = { ...varianceBase };
+    }
+    const varianceViewRange = safeRange(
+      (varianceView?.max ?? varianceBase.max) - (varianceView?.min ?? varianceBase.min),
+      varianceRange
+    );
 
     const scaleX = (x) => padding.left + (plotW * (x - pupilView.xMin)) / rangeX;
     const scaleY = (y) =>
       padding.top + plotH - (plotH * (y - pupilView.yMin)) / rangeY;
+    const scaleVarianceY = (y) => {
+      const value = Number.isFinite(y) ? y : varianceView.min ?? 0;
+      return (
+        padding.top +
+        plotH -
+        (plotH * (value - (varianceView?.min ?? varianceBase.min))) / varianceViewRange
+      );
+    };
 
     const getTimeStepSeconds = () => {
       const range = (pupilView?.xMax || 0) - (pupilView?.xMin || 0);
@@ -1826,22 +1916,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // сетка 500 мс на фоне
     drawTimeGrid();
-
-    ctx.strokeStyle = "#dee2e6";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padding.left, padding.top);
-    ctx.lineTo(padding.left, padding.top + plotH);
-    ctx.lineTo(padding.left + plotW, padding.top + plotH);
-    ctx.stroke();
-
-    ctx.fillStyle = "#6c757d";
-    ctx.fillText("t, с", width - padding.right - 30, height - 10);
-    ctx.save();
-    ctx.translate(15, padding.top + plotH / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText("Диаметр, мм", 0, 0);
-    ctx.restore();
 
     const drawXTicks = () => {
       const stepSeconds = getTimeStepSeconds();
@@ -1890,6 +1964,54 @@ document.addEventListener("DOMContentLoaded", () => {
 
     drawXTicks();
     drawYTicks();
+    const drawVarianceYTicks = () => {
+      if (!varianceYValues.length || !varianceView) {
+        return;
+      }
+      const steps = 5;
+      const step = varianceViewRange / steps;
+      ctx.fillStyle = "#6c757d";
+      ctx.strokeStyle = "#e9ecef";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      for (let i = 0; i <= steps; i += 1) {
+        const val = (varianceView.min ?? 0) + step * i;
+        const y = scaleVarianceY(val);
+        ctx.beginPath();
+        ctx.moveTo(padding.left + plotW, y);
+        ctx.lineTo(padding.left + plotW + 4, y);
+        ctx.stroke();
+        ctx.fillText(val.toFixed(3), padding.left + plotW + 6, y);
+      }
+    };
+    const drawAxesOverlay = () => {
+      ctx.strokeStyle = "#dee2e6";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, padding.top);
+      ctx.lineTo(padding.left, padding.top + plotH);
+      ctx.lineTo(padding.left + plotW, padding.top + plotH);
+      ctx.stroke();
+
+      drawXTicks();
+      drawYTicks();
+      drawVarianceYTicks();
+
+      ctx.fillStyle = "#6c757d";
+      ctx.fillText("t, с", width - padding.right - 30, height - 10);
+      ctx.save();
+      ctx.translate(15, padding.top + plotH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText("Диаметр, мм", 0, 0);
+      ctx.restore();
+      if (varianceYValues.length > 0) {
+        ctx.save();
+        ctx.translate(width - 15, padding.top + plotH / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.fillText("Variance", 0, 0);
+        ctx.restore();
+      }
+    };
 
     const pointsByType = seriesConfig.reduce((acc, config) => {
       acc[config.key] = [];
@@ -1923,17 +2045,47 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.stroke();
     };
 
-    const drawPoints = (points, color) => {
+    const drawPoints = (points, color, yScale = scaleY) => {
       ctx.fillStyle = color;
       ctx.strokeStyle = "#ffffffcc";
       points.forEach((pt) => {
         const x = scaleX(pt.x);
-        const y = scaleY(pt.y);
+        const y = yScale(pt.y);
         ctx.beginPath();
         ctx.arc(x, y, 2.4, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       });
+    };
+
+    const drawVarianceBars = (points, color) => {
+      if (!points || points.length === 0) {
+        return;
+      }
+      const medianStep =
+        computeMedianStep(points.map((p) => p.x)) ||
+        (pupilView.xMax - pupilView.xMin) / Math.max(10, points.length);
+      const barWidthPx = Math.max(
+        2,
+        Math.min(
+          18,
+          (plotW * medianStep * 0.8) / (pupilView.xMax - pupilView.xMin || 1)
+        )
+      );
+      const baselineY = scaleVarianceY(varianceView?.min ?? varianceBase.min ?? 0);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.45;
+      points.forEach((pt) => {
+        const xCenter = scaleX(pt.x);
+        const yTop = scaleVarianceY(pt.y);
+        const rectX = xCenter - barWidthPx / 2;
+        const rectY = Math.min(yTop, baselineY);
+        const rectH = Math.abs(baselineY - yTop);
+        ctx.beginPath();
+        ctx.rect(rectX, rectY, barWidthPx, rectH);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
     };
 
     seriesConfig.forEach((config) => {
@@ -1947,6 +2099,8 @@ document.addEventListener("DOMContentLoaded", () => {
         drawPoints(invalidPoints, config.faded);
       }
     });
+
+    drawAxesOverlay();
 
     let legendX = padding.left;
     const legendY = padding.top - 6;
@@ -1973,6 +2127,24 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillRect(legendX, legendY - 10, 12, 12);
       ctx.fillStyle = "#495057";
       ctx.fillText("Сглаженные (линия)", legendX + 16, legendY);
+      legendX += ctx.measureText("Сглаженные (линия)").width + 90;
+    }
+    if (showInterpolatedVariance && varianceInterpolatedPoints.length > 0) {
+      const varianceInterpColor = "#f97316";
+      drawVarianceBars(varianceInterpolatedPoints, varianceInterpColor);
+      ctx.fillStyle = varianceInterpColor;
+      ctx.fillRect(legendX, legendY - 10, 12, 12);
+      ctx.fillStyle = "#495057";
+      ctx.fillText("Variance (interp)", legendX + 16, legendY);
+      legendX += ctx.measureText("Variance (interp)").width + 90;
+    }
+    if (showSmoothVariance && varianceSmoothPoints.length > 0) {
+      const varianceSmoothColor = "#84cc16";
+      drawVarianceBars(varianceSmoothPoints, varianceSmoothColor);
+      ctx.fillStyle = varianceSmoothColor;
+      ctx.fillRect(legendX, legendY - 10, 12, 12);
+      ctx.fillStyle = "#495057";
+      ctx.fillText("Variance (smooth)", legendX + 16, legendY);
     }
   };
 
@@ -1989,7 +2161,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const clearAllPupilSessions = () => {
     selectedPupilSessions.clear();
     pupilUserAdjusted = false;
+    varianceUserAdjusted = false;
     pupilView = pupilBaseView ? { ...pupilBaseView } : pupilView;
+    varianceView = varianceBaseView ? { ...varianceBaseView } : varianceView;
     renderPupilArea(cachedSessions || [], buildRecordingsMap());
   };
 
@@ -2045,76 +2219,151 @@ document.addEventListener("DOMContentLoaded", () => {
     return { x, y };
   };
 
-  const handleWheelZoom = (event) => {
-    if (!pupilView || !pupilDataBounds) {
-      return;
+  const handleWheelZoom = () => {
+    // wheel zoom disabled; use control buttons instead
+  };
+
+  const zoomAxis = (axis, direction) => {
+    const factor = direction === "in" ? 0.8 : 1.25;
+    if (axis === "x") {
+      if (!pupilView || !pupilDataBounds) return;
+      const center = (pupilView.xMin + pupilView.xMax) / 2;
+      const baseRange =
+        (pupilBaseView?.xMax || 0) - (pupilBaseView?.xMin || 0) || pupilView.xMax - pupilView.xMin;
+      const newRange = Math.min((pupilView.xMax - pupilView.xMin) * factor, baseRange);
+      pupilView = clampViewToBounds(
+        {
+          xMin: center - newRange / 2,
+          xMax: center + newRange / 2,
+          yMin: pupilView.yMin,
+          yMax: pupilView.yMax,
+        },
+        pupilDataBounds
+      );
+      pupilUserAdjusted = true;
+    } else if (axis === "pupilY") {
+      if (!pupilView || !pupilDataBounds) return;
+      const center = (pupilView.yMin + pupilView.yMax) / 2;
+      const baseRange =
+        (pupilBaseView?.yMax || 0) - (pupilBaseView?.yMin || 0) || pupilView.yMax - pupilView.yMin;
+      const newRange = Math.min((pupilView.yMax - pupilView.yMin) * factor, baseRange);
+      pupilView = clampViewToBounds(
+        {
+          xMin: pupilView.xMin,
+          xMax: pupilView.xMax,
+          yMin: center - newRange / 2,
+          yMax: center + newRange / 2,
+        },
+        pupilDataBounds
+      );
+      pupilUserAdjusted = true;
+    } else if (axis === "varianceY") {
+      if (!varianceView) return;
+      const varianceZoomFactor = direction === "in" ? 0.5 : 2; // более сильный шаг
+      const baseRange =
+        (varianceBaseView?.max || 0) - (varianceBaseView?.min || 0) ||
+        varianceView.max - varianceView.min;
+      const center = (varianceView.min + varianceView.max) / 2;
+      const newRange = Math.min(
+        (varianceView.max - varianceView.min) * varianceZoomFactor,
+        baseRange
+      );
+      varianceView = {
+        min: center - newRange / 2,
+        max: center + newRange / 2,
+      };
+      if (varianceBaseView) {
+        varianceBaseView = {
+          min: center - newRange / 2,
+          max: center + newRange / 2,
+        };
+      }
+      varianceUserAdjusted = true;
     }
-    event.preventDefault();
-    const zoomFactor = event.deltaY < 0 ? 0.85 : 1.15;
-    const { x, y } = screenToData(event.offsetX, event.offsetY);
+    renderPupilChart(cachedSessions || []);
+  };
+
+  const shiftXAxis = (direction) => {
+    if (!pupilView || !pupilDataBounds) return;
     const rangeX = pupilView.xMax - pupilView.xMin || 1;
-    const rangeY = pupilView.yMax - pupilView.yMin || 1;
-
-    const newRangeX = rangeX * zoomFactor;
-    const newRangeY = rangeY * zoomFactor;
-    const baseRangeX =
-      (pupilBaseView?.xMax || 0) - (pupilBaseView?.xMin || 0) || newRangeX;
-    const baseRangeY =
-      (pupilBaseView?.yMax || 0) - (pupilBaseView?.yMin || 0) || newRangeY;
-
-    const limitedRangeX = Math.min(newRangeX, baseRangeX);
-    const limitedRangeY = Math.min(newRangeY, baseRangeY);
-
-    const newView = {
-      xMin: x - ((x - pupilView.xMin) * limitedRangeX) / rangeX,
-      xMax: x + ((pupilView.xMax - x) * limitedRangeX) / rangeX,
-      yMin: y - ((y - pupilView.yMin) * limitedRangeY) / rangeY,
-      yMax: y + ((pupilView.yMax - y) * limitedRangeY) / rangeY,
-    };
-
-    pupilView = clampViewToBounds(newView, pupilDataBounds);
+    const shift = rangeX * 0.2 * (direction === "right" ? 1 : -1);
+    pupilView = clampViewToBounds(
+      {
+        xMin: pupilView.xMin + shift,
+        xMax: pupilView.xMax + shift,
+        yMin: pupilView.yMin,
+        yMax: pupilView.yMax,
+      },
+      pupilDataBounds
+    );
     pupilUserAdjusted = true;
     renderPupilChart(cachedSessions || []);
   };
 
-  const handlePanMove = (event) => {
-    if (!isPanning || !panStart || !pupilView || !pupilDataBounds) {
-      return;
-    }
-    if (event.buttons === 0) {
-      endPan();
-      return;
-    }
-    const { plotW, plotH } = getChartMetrics();
+  const gotoTime = () => {
+    if (!pupilView || !pupilDataBounds) return;
+    const target = Number(gotoTimeInput?.value);
+    if (!Number.isFinite(target)) return;
     const rangeX = pupilView.xMax - pupilView.xMin || 1;
-    const rangeY = pupilView.yMax - pupilView.yMin || 1;
-    const dx = event.offsetX - panStart.x;
-    const dy = event.offsetY - panStart.y;
-    const shiftX = (dx * rangeX) / plotW;
-    const shiftY = (dy * rangeY) / plotH;
-
-    const newView = {
-      xMin: panStart.view.xMin - shiftX,
-      xMax: panStart.view.xMax - shiftX,
-      yMin: panStart.view.yMin + shiftY,
-      yMax: panStart.view.yMax + shiftY,
-    };
-
-    pupilView = clampViewToBounds(newView, pupilDataBounds);
+    const halfRange = rangeX / 2;
+    const desiredCenter = Math.max(
+      pupilDataBounds.xMin,
+      Math.min(pupilDataBounds.xMax, target)
+    );
+    pupilView = clampViewToBounds(
+      {
+        xMin: desiredCenter - halfRange,
+        xMax: desiredCenter + halfRange,
+        yMin: pupilView.yMin,
+        yMax: pupilView.yMax,
+      },
+      pupilDataBounds
+    );
     pupilUserAdjusted = true;
     renderPupilChart(cachedSessions || []);
   };
 
-  const startPan = (event) => {
-    if (!pupilView) {
-      return;
+  const shiftAxis = (axis, direction) => {
+    const sign = direction === "up" ? 1 : -1;
+    if (axis === "pupilY") {
+      if (!pupilView || !pupilDataBounds) return;
+      const rangeY = pupilView.yMax - pupilView.yMin || 1;
+      const shift = rangeY * 0.1 * sign;
+      pupilView = clampViewToBounds(
+        {
+          xMin: pupilView.xMin,
+          xMax: pupilView.xMax,
+          yMin: pupilView.yMin + shift,
+          yMax: pupilView.yMax + shift,
+        },
+        pupilDataBounds
+      );
+      pupilUserAdjusted = true;
+    } else if (axis === "varianceY") {
+      if (!varianceView) return;
+      const viewRange = varianceView.max - varianceView.min || 1;
+      const shift = viewRange * 0.2 * sign;
+      varianceView = {
+        min: varianceView.min + shift,
+        max: varianceView.max + shift,
+      };
+      if (varianceBaseView) {
+        varianceBaseView = {
+          min: varianceBaseView.min + shift,
+          max: varianceBaseView.max + shift,
+        };
+      }
+      varianceUserAdjusted = true;
     }
-    isPanning = true;
-    panStart = {
-      x: event.offsetX,
-      y: event.offsetY,
-      view: { ...pupilView },
-    };
+    renderPupilChart(cachedSessions || []);
+  };
+
+  const handlePanMove = () => {
+    // mouse panning disabled; use control buttons instead
+  };
+
+  const startPan = () => {
+    // mouse panning disabled
   };
 
   const endPan = () => {
@@ -2140,13 +2389,9 @@ document.addEventListener("DOMContentLoaded", () => {
   experimentFilter?.addEventListener("change", () => renderWithFilters());
   stimulusFilter?.addEventListener("change", () => renderWithFilters());
   unmatchedOnlyCheckbox?.addEventListener("change", () => renderWithFilters());
-  pupilChartCanvas?.addEventListener("wheel", handleWheelZoom, {
+  pupilChartCanvas?.addEventListener("wheel", (e) => e.preventDefault(), {
     passive: false,
   });
-  pupilChartCanvas?.addEventListener("mousedown", startPan);
-  pupilChartCanvas?.addEventListener("mouseleave", endPan);
-  window.addEventListener("mousemove", handlePanMove);
-  window.addEventListener("mouseup", endPan);
 
   pupilStimulusFilter?.addEventListener("change", () =>
     renderPupilArea(
@@ -2198,10 +2443,25 @@ document.addEventListener("DOMContentLoaded", () => {
     showAvgPupilCheckbox,
     showInterpolatedPupilCheckbox,
     showSmoothPupilCheckbox,
+    showInterpolatedVarianceCheckbox,
+    showSmoothVarianceCheckbox,
     includeInvalidPupilCheckbox,
   ].forEach((checkbox) =>
     checkbox?.addEventListener("change", () => renderPupilChart(cachedSessions || []))
   );
+  zoomXAxisInBtn?.addEventListener("click", () => zoomAxis("x", "in"));
+  zoomXAxisOutBtn?.addEventListener("click", () => zoomAxis("x", "out"));
+  zoomPupilYInBtn?.addEventListener("click", () => zoomAxis("pupilY", "in"));
+  zoomPupilYOutBtn?.addEventListener("click", () => zoomAxis("pupilY", "out"));
+  zoomVarianceYInBtn?.addEventListener("click", () => zoomAxis("varianceY", "in"));
+  zoomVarianceYOutBtn?.addEventListener("click", () => zoomAxis("varianceY", "out"));
+  shiftPupilYUpBtn?.addEventListener("click", () => shiftAxis("pupilY", "up"));
+  shiftPupilYDownBtn?.addEventListener("click", () => shiftAxis("pupilY", "down"));
+  shiftVarianceYUpBtn?.addEventListener("click", () => shiftAxis("varianceY", "up"));
+  shiftVarianceYDownBtn?.addEventListener("click", () => shiftAxis("varianceY", "down"));
+  shiftXAxisLeftBtn?.addEventListener("click", () => shiftXAxis("left"));
+  shiftXAxisRightBtn?.addEventListener("click", () => shiftXAxis("right"));
+  gotoTimeBtn?.addEventListener("click", gotoTime);
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
   pupilClearAllBtn?.addEventListener("click", () => clearAllPupilSessions());
   resetDbButton?.addEventListener("click", async (event) => {

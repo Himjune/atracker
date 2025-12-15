@@ -412,15 +412,15 @@
                 <div class="d-flex flex-wrap align-items-center gap-3 px-2 pt-2">
                   <span class="small text-muted">Серии (сырые точки):</span>
                   <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" id="showLeftPupil" checked />
+                    <input class="form-check-input" type="checkbox" id="showLeftPupil" />
                     <label class="form-check-label small" for="showLeftPupil">Левый (синий)</label>
                   </div>
                   <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" id="showRightPupil" checked />
+                    <input class="form-check-input" type="checkbox" id="showRightPupil" />
                     <label class="form-check-label small" for="showRightPupil">Правый (красный)</label>
                   </div>
                   <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" id="showAvgPupil" checked />
+                    <input class="form-check-input" type="checkbox" id="showAvgPupil" />
                     <label class="form-check-label small" for="showAvgPupil">Среднее (зеленый)</label>
                   </div>
                   <div class="form-check form-check-inline">
@@ -428,18 +428,59 @@
                     <label class="form-check-label small" for="showInterpolatedPupil">Интерполированные (фиолетовый)</label>
                   </div>
                   <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" id="showSmoothPupil" />
+                    <input class="form-check-input" type="checkbox" id="showInterpolatedVariance" checked />
+                    <label class="form-check-label small" for="showInterpolatedVariance">Variance (interp)</label>
+                  </div>
+                  <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="showSmoothPupil" checked />
                     <label class="form-check-label small" for="showSmoothPupil">Сглаженные (голубая линия)</label>
+                  </div>
+                  <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="showSmoothVariance" />
+                    <label class="form-check-label small" for="showSmoothVariance">Variance (smooth)</label>
                   </div>
                   <div class="form-check form-check-inline">
                     <input class="form-check-input" type="checkbox" id="includeInvalidPupil" />
                     <label class="form-check-label small" for="includeInvalidPupil">Показывать невалидные</label>
                   </div>
                 </div>
+                <div class="d-flex flex-wrap align-items-center gap-3 px-2 pb-2">
+                  <span class="small text-muted">Масштаб:</span>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Zoom X">
+                    <button class="btn btn-outline-secondary" id="zoomXAxisOut" type="button">X−</button>
+                    <button class="btn btn-outline-secondary" id="zoomXAxisIn" type="button">X+</button>
+                  </div>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Move X">
+                    <button class="btn btn-outline-secondary" id="shiftXAxisLeft" type="button">←</button>
+                    <button class="btn btn-outline-secondary" id="shiftXAxisRight" type="button">→</button>
+                  </div>
+                  <div class="input-group input-group-sm" style="width: 200px;">
+                    <span class="input-group-text">t, c</span>
+                    <input type="number" class="form-control" id="gotoTimeValue" step="0.1" min="0" />
+                    <button class="btn btn-outline-secondary" id="gotoTimeBtn" type="button">Перейти</button>
+                  </div>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Zoom Y pupil">
+                    <button class="btn btn-outline-primary" id="zoomPupilYOut" type="button">Y pupil−</button>
+                    <button class="btn btn-outline-primary" id="zoomPupilYIn" type="button">Y pupil+</button>
+                  </div>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Zoom Y variance">
+                    <button class="btn btn-outline-warning" id="zoomVarianceYOut" type="button">Y var−</button>
+                    <button class="btn btn-outline-warning" id="zoomVarianceYIn" type="button">Y var+</button>
+                  </div>
+                  <span class="small text-muted">Сдвиг:</span>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Shift Y pupil">
+                    <button class="btn btn-outline-primary" id="shiftPupilYDown" type="button">↓ pupil</button>
+                    <button class="btn btn-outline-primary" id="shiftPupilYUp" type="button">↑ pupil</button>
+                  </div>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Shift Y variance">
+                    <button class="btn btn-outline-warning" id="shiftVarianceYDown" type="button">↓ var</button>
+                    <button class="btn btn-outline-warning" id="shiftVarianceYUp" type="button">↑ var</button>
+                  </div>
+                </div>
                 <canvas
                   id="pupilChart"
                   width="800"
-                  height="380"
+                  height="506"
                   class="w-100"
                   style="max-width: 100%;"
                 ></canvas>
