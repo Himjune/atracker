@@ -59,9 +59,28 @@ document.addEventListener("DOMContentLoaded", () => {
   const gazeStartIndexInput = document.getElementById("gazeStartIndex");
   const gazeEndIndexInput = document.getElementById("gazeEndIndex");
   const gazeApplyRangeBtn = document.getElementById("gazeApplyRange");
+  const gazeResetRangeBtn = document.getElementById("gazeResetRange");
+  const gazeSelectStartZoneBtn = document.getElementById("gazeSelectStartZone");
+  const gazeClearStartZoneBtn = document.getElementById("gazeClearStartZone");
+  const gazeSelectEndZoneBtn = document.getElementById("gazeSelectEndZone");
+  const gazeClearEndZoneBtn = document.getElementById("gazeClearEndZone");
   const gazePlayButton = document.getElementById("gazePlayButton");
   const gazePauseButton = document.getElementById("gazePauseButton");
   const gazeCurrentPoint = document.getElementById("gazeCurrentPoint");
+  const gazeStartZoneInfo = document.getElementById("gazeStartZoneInfo");
+  const gazeEndZoneInfo = document.getElementById("gazeEndZoneInfo");
+  const gazeStartZoneInputs = {
+    x: document.getElementById("gazeStartZoneX"),
+    y: document.getElementById("gazeStartZoneY"),
+    w: document.getElementById("gazeStartZoneW"),
+    h: document.getElementById("gazeStartZoneH"),
+  };
+  const gazeEndZoneInputs = {
+    x: document.getElementById("gazeEndZoneX"),
+    y: document.getElementById("gazeEndZoneY"),
+    w: document.getElementById("gazeEndZoneW"),
+    h: document.getElementById("gazeEndZoneH"),
+  };
   const gazeStimulusStatus = document.getElementById("gazeStimulusStatus");
   const resetDbButton = document.getElementById("resetDbButton");
   const resetStatusElement = document.getElementById("resetStatus");
@@ -103,6 +122,11 @@ document.addEventListener("DOMContentLoaded", () => {
   let gazePlaybackFrame = null;
   let gazePlaybackIndex = 0;
   let gazePlaybackPaused = false;
+  let gazeStartZone = null; // normalized rect {x,y,w,h}
+  let gazeEndZone = null; // normalized rect {x,y,w,h}
+  let gazeZoneSelecting = null; // "start" | "end" | null
+  let gazeZoneStartPx = null;
+  let lastGazeDrawRect = null;
   const sessionPlaybackRanges = new Map();
   const stimulusImageCache = new Map();
 
@@ -1291,6 +1315,35 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const isPointInStartZone = (point = {}) => {
+    if (!gazeStartZone) return false;
+    const nx = Number(point.x);
+    const ny = Number(point.y);
+    if (!Number.isFinite(nx) || !Number.isFinite(ny)) {
+      return false;
+    }
+    return (
+      nx >= gazeStartZone.x &&
+      nx <= gazeStartZone.x + gazeStartZone.w &&
+      ny >= gazeStartZone.y &&
+      ny <= gazeStartZone.y + gazeStartZone.h
+    );
+  };
+
+  const applyZoneInputs = () => {
+    const startZone = readZoneFromInputs(gazeStartZoneInputs);
+    if (startZone) {
+      gazeStartZone = startZone;
+    }
+    const endZone = readZoneFromInputs(gazeEndZoneInputs);
+    if (endZone) {
+      gazeEndZone = endZone;
+    }
+    renderGazeArea(
+      filterPupilSessions(cachedSessions || [], buildRecordingsMap(cachedRecordings || []))
+    );
+  };
+
   const applyRangeToSelected = async () => {
     const startValue = Number(gazeStartTimeInput?.value);
     const endValue = Number(gazeEndTimeInput?.value);
@@ -1333,6 +1386,20 @@ document.addEventListener("DOMContentLoaded", () => {
           ? startIdx
           : (() => {
               if (!Array.isArray(points) || points.length === 0) return null;
+              if (gazeStartZone) {
+                const idx = points.findIndex((p) => {
+                  const nx = Number(p?.x);
+                  const ny = Number(p?.y);
+                  if (!Number.isFinite(nx) || !Number.isFinite(ny)) return false;
+                  return (
+                    nx >= gazeStartZone.x &&
+                    nx <= gazeStartZone.x + gazeStartZone.w &&
+                    ny >= gazeStartZone.y &&
+                    ny <= gazeStartZone.y + gazeStartZone.h
+                  );
+                });
+                if (idx >= 0) return idx;
+              }
               if (start === null) return 0;
               const idx = points.findIndex(
                 (p) => Number.isFinite(p?.timeOffsetMs) && p.timeOffsetMs >= start
@@ -1344,6 +1411,34 @@ document.addEventListener("DOMContentLoaded", () => {
           ? endIdx
           : (() => {
               if (!Array.isArray(points) || points.length === 0) return null;
+              if (gazeEndZone && gazeStartZone) {
+                let visitedEnd = false;
+                for (let i = 0; i < points.length; i += 1) {
+                  const pt = points[i];
+                  const nx = Number(pt?.x);
+                  const ny = Number(pt?.y);
+                  const inEnd =
+                    Number.isFinite(nx) &&
+                    Number.isFinite(ny) &&
+                    nx >= gazeEndZone.x &&
+                    nx <= gazeEndZone.x + gazeEndZone.w &&
+                    ny >= gazeEndZone.y &&
+                    ny <= gazeEndZone.y + gazeEndZone.h;
+                  if (inEnd) {
+                    visitedEnd = true;
+                  }
+                  const inStart =
+                    Number.isFinite(nx) &&
+                    Number.isFinite(ny) &&
+                    nx >= gazeStartZone.x &&
+                    nx <= gazeStartZone.x + gazeStartZone.w &&
+                    ny >= gazeStartZone.y &&
+                    ny <= gazeStartZone.y + gazeStartZone.h;
+                  if (visitedEnd && inStart) {
+                    return i;
+                  }
+                }
+              }
               if (end === null) return points.length - 1;
               for (let i = points.length - 1; i >= 0; i -= 1) {
                 const t = Number(points[i]?.timeOffsetMs);
@@ -1392,6 +1487,53 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
+    renderPupilArea(cachedSessions || [], buildRecordingsMap(cachedRecordings || []));
+    renderGazeArea(
+      filterPupilSessions(cachedSessions || [], buildRecordingsMap(cachedRecordings || []))
+    );
+  };
+
+  const resetRangeForSelected = async () => {
+    const selected = Array.from(selectedPupilSessions || []);
+    if (selected.length === 0) {
+      setGazeStatus("Сначала выберите хотя бы одну сессию.", "warning");
+      return;
+    }
+    const updatedSessions = [];
+    selected.forEach((key) => {
+      const session =
+        (cachedSessions || []).find((s) => s.sessionKey === key) || null;
+      if (!session) return;
+      const cleaned = { ...session };
+      delete cleaned.playbackStartIndex;
+      delete cleaned.playbackEndIndex;
+      sessionPlaybackRanges.delete(key);
+      updatedSessions.push(cleaned);
+    });
+
+    if (updatedSessions.length > 0) {
+      try {
+        await Promise.all(
+          updatedSessions.map((session) => window.eyeTrackerDB.addSession(session))
+        );
+        cachedSessions = (cachedSessions || []).map((session) => {
+          const found = updatedSessions.find((s) => s.sessionKey === session.sessionKey);
+          return found ? found : session;
+        });
+        setGazeStatus(
+          `Старт/конец сброшены для ${updatedSessions.length} сессий.`,
+          "success"
+        );
+      } catch (error) {
+        console.error(error);
+        setGazeStatus("Не удалось сбросить старт/конец в БД.", "danger");
+      }
+    }
+
+    if (gazeStartTimeInput) gazeStartTimeInput.value = "";
+    if (gazeEndTimeInput) gazeEndTimeInput.value = "";
+    if (gazeStartIndexInput) gazeStartIndexInput.value = "";
+    if (gazeEndIndexInput) gazeEndIndexInput.value = "";
     renderPupilArea(cachedSessions || [], buildRecordingsMap(cachedRecordings || []));
     renderGazeArea(
       filterPupilSessions(cachedSessions || [], buildRecordingsMap(cachedRecordings || []))
@@ -1775,6 +1917,49 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const setGazeStartZoneInfo = (text, type = "muted") => {
+    if (!gazeStartZoneInfo) return;
+    gazeStartZoneInfo.textContent = text || "";
+    gazeStartZoneInfo.className = `small text-${type}`;
+  };
+
+  const setGazeEndZoneInfo = (text, type = "muted") => {
+    if (!gazeEndZoneInfo) return;
+    gazeEndZoneInfo.textContent = text || "";
+    gazeEndZoneInfo.className = `small text-${type}`;
+  };
+
+  const fillZoneInputs = (zone, inputs) => {
+    if (!inputs) return;
+    inputs.x && (inputs.x.value = Number.isFinite(zone?.x) ? zone.x : "");
+    inputs.y && (inputs.y.value = Number.isFinite(zone?.y) ? zone.y : "");
+    inputs.w && (inputs.w.value = Number.isFinite(zone?.w) ? zone.w : "");
+    inputs.h && (inputs.h.value = Number.isFinite(zone?.h) ? zone.h : "");
+  };
+
+  const readZoneFromInputs = (inputs) => {
+    if (!inputs) return null;
+    const x = Number(inputs.x?.value);
+    const y = Number(inputs.y?.value);
+    const w = Number(inputs.w?.value);
+    const h = Number(inputs.h?.value);
+    if (
+      Number.isFinite(x) &&
+      Number.isFinite(y) &&
+      Number.isFinite(w) &&
+      Number.isFinite(h) &&
+      x >= 0 &&
+      y >= 0 &&
+      w > 0 &&
+      h > 0 &&
+      x + w <= 1 &&
+      y + h <= 1
+    ) {
+      return { x, y, w, h };
+    }
+    return null;
+  };
+
   const renderGazeCanvas = async (sessions) => {
     stopGazePlayback();
 
@@ -1867,6 +2052,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const colorMode = gazeColorMode?.value || "session";
+    lastGazeDrawRect = { ...drawRect };
     const playbackPoints = [];
     gazePlaybackFrame = ctx.getImageData(0, 0, width, height);
     const points = stimulusSessions
@@ -1931,6 +2117,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const initialRange = selectedRanges[stimulusSessions[0]?.sessionKey] || {};
     updateRangeInputs(initialRange);
 
+    let firstZonePoint = null;
+    let startAfterEndPoint = null;
+    let wasInEndZone = false;
     points.forEach((pt, index) => {
       const px = drawRect.x + pt.x * drawRect.width;
       const py = drawRect.y + pt.y * drawRect.height;
@@ -1958,7 +2147,40 @@ document.addEventListener("DOMContentLoaded", () => {
         time: pt.time,
         sessionKey: pt.sessionKey,
         order: index,
+        normX: pt.x,
+        normY: pt.y,
       });
+
+      if (
+        gazeStartZone &&
+        !firstZonePoint &&
+        pt.x >= gazeStartZone.x &&
+        pt.x <= gazeStartZone.x + gazeStartZone.w &&
+        pt.y >= gazeStartZone.y &&
+        pt.y <= gazeStartZone.y + gazeStartZone.h
+      ) {
+        firstZonePoint = { index, ...pt };
+      }
+      if (gazeEndZone) {
+        const inZone =
+          pt.x >= gazeEndZone.x &&
+          pt.x <= gazeEndZone.x + gazeEndZone.w &&
+          pt.y >= gazeEndZone.y &&
+          pt.y <= gazeEndZone.y + gazeEndZone.h;
+        if (inZone) {
+          wasInEndZone = true;
+        }
+      }
+      if (gazeStartZone && wasInEndZone && !startAfterEndPoint) {
+        const inStart =
+          pt.x >= gazeStartZone.x &&
+          pt.x <= gazeStartZone.x + gazeStartZone.w &&
+          pt.y >= gazeStartZone.y &&
+          pt.y <= gazeStartZone.y + gazeStartZone.h;
+        if (inStart) {
+          startAfterEndPoint = { index, ...pt };
+        }
+      }
     });
 
     const legendSessions = Array.from(
@@ -1975,6 +2197,60 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillText(sessionKey, legendX + 16, legendY + 1);
       legendX += ctx.measureText(sessionKey).width + 52;
     });
+
+    if (gazeStartZone) {
+      ctx.save();
+      ctx.strokeStyle = "#20c997";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      const zx = drawRect.x + gazeStartZone.x * drawRect.width;
+      const zy = drawRect.y + gazeStartZone.y * drawRect.height;
+      const zw = gazeStartZone.w * drawRect.width;
+      const zh = gazeStartZone.h * drawRect.height;
+      ctx.strokeRect(zx, zy, zw, zh);
+      ctx.restore();
+    }
+    if (gazeEndZone) {
+      ctx.save();
+      ctx.strokeStyle = "#fd7e14";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      const zx = drawRect.x + gazeEndZone.x * drawRect.width;
+      const zy = drawRect.y + gazeEndZone.y * drawRect.height;
+      const zw = gazeEndZone.w * drawRect.width;
+      const zh = gazeEndZone.h * drawRect.height;
+      ctx.strokeRect(zx, zy, zw, zh);
+      ctx.restore();
+    }
+
+    if (firstZonePoint && gazeStartIndexInput) {
+      gazeStartIndexInput.value = firstZonePoint.index;
+      syncTimesFromIndices();
+      setGazeStartZoneInfo(
+        `Первая точка в зоне: #${firstZonePoint.index} (t=${Number.isFinite(firstZonePoint.time) ? firstZonePoint.time.toFixed(2) : "—"} c, сессия ${firstZonePoint.sessionKey})`,
+        "success"
+      );
+    } else if (gazeStartZone) {
+      setGazeStartZoneInfo("Точки в зоне не найдены в выбранных данных.", "warning");
+    } else {
+      setGazeStartZoneInfo("");
+    }
+    if (gazeEndIndexInput) {
+      if (startAfterEndPoint) {
+        gazeEndIndexInput.value = startAfterEndPoint.index;
+        syncTimesFromIndices();
+        setGazeEndZoneInfo(
+          `Первый вход в зону старта после зоны конца: #${startAfterEndPoint.index} (t=${Number.isFinite(startAfterEndPoint.time) ? startAfterEndPoint.time.toFixed(2) : "—"} c, сессия ${startAfterEndPoint.sessionKey})`,
+          "success"
+        );
+      } else if (gazeEndZone) {
+        setGazeEndZoneInfo("Нет точки входа в старт после посещения зоны конца.", "warning");
+      } else if (gazeStartZone) {
+        setGazeEndZoneInfo("Нет повторного входа в зону старта после зоны конца.", "warning");
+      } else {
+        setGazeEndZoneInfo("");
+      }
+    }
 
     gazePlaybackPoints = playbackPoints
       .slice()
@@ -3086,6 +3362,93 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   gazePauseButton?.addEventListener("click", () => pauseGazePlayback());
   gazePlayButton?.addEventListener("click", handleGazePlay);
+  gazeSelectStartZoneBtn?.addEventListener("click", () => {
+    gazeZoneSelecting = "start";
+    gazeZoneStartPx = null;
+    setGazeStatus("Выделите прямоугольник на стимуле для зоны старта.", "info");
+  });
+  gazeClearStartZoneBtn?.addEventListener("click", () => {
+    gazeStartZone = null;
+    gazeZoneSelecting = null;
+    gazeZoneStartPx = null;
+    fillZoneInputs(null, gazeStartZoneInputs);
+    setGazeStatus("Зона старта сброшена.", "muted");
+    renderGazeArea(
+      filterPupilSessions(cachedSessions || [], buildRecordingsMap(cachedRecordings || []))
+    );
+  });
+  gazeResetRangeBtn?.addEventListener("click", () => resetRangeForSelected());
+  gazeSelectEndZoneBtn?.addEventListener("click", () => {
+    gazeZoneSelecting = "end";
+    gazeZoneStartPx = null;
+    setGazeStatus("Выделите прямоугольник на стимуле для зоны конца.", "info");
+  });
+  gazeClearEndZoneBtn?.addEventListener("click", () => {
+    gazeEndZone = null;
+    gazeZoneSelecting = null;
+    gazeZoneStartPx = null;
+    fillZoneInputs(null, gazeEndZoneInputs);
+    setGazeStatus("Зона конца сброшена.", "muted");
+    renderGazeArea(
+      filterPupilSessions(cachedSessions || [], buildRecordingsMap(cachedRecordings || []))
+    );
+  });
+  ["x", "y", "w", "h"].forEach((key) => {
+    gazeStartZoneInputs[key]?.addEventListener("change", applyZoneInputs);
+    gazeEndZoneInputs[key]?.addEventListener("change", applyZoneInputs);
+  });
+
+  gazeCanvas?.addEventListener("mousedown", (event) => {
+    if (!gazeZoneSelecting || !lastGazeDrawRect) return;
+    const rect = gazeCanvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    gazeZoneStartPx = { x, y };
+  });
+
+  gazeCanvas?.addEventListener("mouseup", (event) => {
+    if (!gazeZoneSelecting || !lastGazeDrawRect || !gazeZoneStartPx) return;
+    const rect = gazeCanvas.getBoundingClientRect();
+    const x2 = event.clientX - rect.left;
+    const y2 = event.clientY - rect.top;
+    const { x: x1, y: y1 } = gazeZoneStartPx;
+    const xMin = Math.min(x1, x2);
+    const xMax = Math.max(x1, x2);
+    const yMin = Math.min(y1, y2);
+    const yMax = Math.max(y1, y2);
+    const clampRect = {
+      x1: Math.max(lastGazeDrawRect.x, xMin),
+      y1: Math.max(lastGazeDrawRect.y, yMin),
+      x2: Math.min(lastGazeDrawRect.x + lastGazeDrawRect.width, xMax),
+      y2: Math.min(lastGazeDrawRect.y + lastGazeDrawRect.height, yMax),
+    };
+    const wPx = clampRect.x2 - clampRect.x1;
+    const hPx = clampRect.y2 - clampRect.y1;
+    if (wPx <= 0 || hPx <= 0) {
+      setGazeStatus("Зона не задана: выделите прямоугольник внутри стимула.", "warning");
+      gazeZoneStartPx = null;
+      gazeZoneSelecting = null;
+      return;
+    }
+    const nx = (clampRect.x1 - lastGazeDrawRect.x) / lastGazeDrawRect.width;
+    const ny = (clampRect.y1 - lastGazeDrawRect.y) / lastGazeDrawRect.height;
+    const nw = wPx / lastGazeDrawRect.width;
+    const nh = hPx / lastGazeDrawRect.height;
+    if (gazeZoneSelecting === "start") {
+      gazeStartZone = { x: nx, y: ny, w: nw, h: nh };
+      fillZoneInputs(gazeStartZone, gazeStartZoneInputs);
+      setGazeStatus("Зона старта установлена. Нажмите «Применить» для пересчета.", "success");
+    } else if (gazeZoneSelecting === "end") {
+      gazeEndZone = { x: nx, y: ny, w: nw, h: nh };
+      fillZoneInputs(gazeEndZone, gazeEndZoneInputs);
+      setGazeStatus("Зона конца установлена. Нажмите «Применить» для пересчета.", "success");
+    }
+    gazeZoneSelecting = null;
+    gazeZoneStartPx = null;
+    renderGazeArea(
+      filterPupilSessions(cachedSessions || [], buildRecordingsMap(cachedRecordings || []))
+    );
+  });
   const handleThresholdChange = () => {
     setRecomputeStatus(
       "Параметры изменены. Нажмите «Пересчитать точки», чтобы обновить сохраненные данные.",
