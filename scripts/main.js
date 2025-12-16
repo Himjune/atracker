@@ -31,6 +31,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const zoomXAxisOutBtn = document.getElementById("zoomXAxisOut");
   const baselineWindowSizeInput = document.getElementById("baselineWindowSize");
   const baselineSearchLengthInput = document.getElementById("baselineSearchLength");
+  const baselineSearchStartInput = document.getElementById("baselineSearchStart");
   const zoomPupilYInBtn = document.getElementById("zoomPupilYIn");
   const zoomPupilYOutBtn = document.getElementById("zoomPupilYOut");
   const zoomVarianceYInBtn = document.getElementById("zoomVarianceYIn");
@@ -138,6 +139,16 @@ document.addEventListener("DOMContentLoaded", () => {
       Number(baselineModule?.DEFAULT_SEARCH_LEN_SECONDS) || 3;
     const value = Number(baselineSearchLengthInput?.value);
     if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    return fallback;
+  };
+
+  const getBaselineSearchStart = () => {
+    const fallback =
+      Number(baselineModule?.DEFAULT_SEARCH_START_OFFSET_SECONDS) || 0.5;
+    const value = Number(baselineSearchStartInput?.value);
+    if (Number.isFinite(value) && value >= 0) {
       return value;
     }
     return fallback;
@@ -517,10 +528,18 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
-  const selectMinVarianceBaseline = (baselines = [], points = [], searchLengthSeconds) => {
+  const selectMinVarianceBaseline = (
+    baselines = [],
+    points = [],
+    searchLengthSeconds,
+    searchStartSeconds
+  ) => {
     const maxTime = Number.isFinite(searchLengthSeconds)
       ? Math.max(0, searchLengthSeconds)
       : null;
+    const minTime = Number.isFinite(searchStartSeconds)
+      ? Math.max(0, searchStartSeconds)
+      : 0;
 
     let best = null;
     for (let i = 0; i < baselines.length; i += 1) {
@@ -530,7 +549,14 @@ document.addEventListener("DOMContentLoaded", () => {
         continue;
       }
       const timeOffsetMs = Number(points[i]?.timeOffsetMs);
-      if (Number.isFinite(maxTime) && (!Number.isFinite(timeOffsetMs) || timeOffsetMs > maxTime)) {
+      if (!Number.isFinite(timeOffsetMs)) {
+        if (Number.isFinite(maxTime)) continue;
+        if (Number.isFinite(minTime)) continue;
+      }
+      if (Number.isFinite(timeOffsetMs) && timeOffsetMs < minTime) {
+        continue;
+      }
+      if (Number.isFinite(maxTime) && Number.isFinite(timeOffsetMs) && timeOffsetMs > maxTime) {
         break;
       }
       if (best && variance >= best.variance) {
@@ -555,6 +581,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const smoothPoints = buildSmoothedPoints(interpolatedPoints);
     const windowSize = getBaselineWindowSize();
     const baselineSearchLength = getBaselineSearchLength();
+    const baselineSearchStart = getBaselineSearchStart();
     const interpolatedBaselines =
       baselineModule?.computeBaselineWindows(interpolatedPoints, windowSize) ?? [];
     const smoothBaselines =
@@ -562,7 +589,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const baselineWindow = selectMinVarianceBaseline(
       interpolatedBaselines,
       interpolatedPoints,
-      baselineSearchLength
+      baselineSearchLength,
+      baselineSearchStart
     );
 
     interpolatedPoints.forEach((pt, index) => {
@@ -2532,6 +2560,9 @@ document.addEventListener("DOMContentLoaded", () => {
     renderPupilChart(cachedSessions || [])
   );
   baselineSearchLengthInput?.addEventListener("change", () =>
+    renderPupilChart(cachedSessions || [])
+  );
+  baselineSearchStartInput?.addEventListener("change", () =>
     renderPupilChart(cachedSessions || [])
   );
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());

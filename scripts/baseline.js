@@ -1,6 +1,7 @@
 const EyeTrackerBaseline = (() => {
   const DEFAULT_WINDOW_SIZE_SECONDS = 0.5;
   const DEFAULT_SEARCH_LEN_SECONDS = 3;
+  const DEFAULT_SEARCH_START_OFFSET_SECONDS = 0.5;
 
   const toFiniteNumber = (value) => {
     const num = Number(value);
@@ -89,6 +90,7 @@ const EyeTrackerBaseline = (() => {
     computeBaselineWindows,
     DEFAULT_WINDOW_SIZE_SECONDS,
     DEFAULT_SEARCH_LEN_SECONDS,
+    DEFAULT_SEARCH_START_OFFSET_SECONDS,
   };
 })();
 
