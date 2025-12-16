@@ -64,6 +64,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const gazeClearStartZoneBtn = document.getElementById("gazeClearStartZone");
   const gazeSelectEndZoneBtn = document.getElementById("gazeSelectEndZone");
   const gazeClearEndZoneBtn = document.getElementById("gazeClearEndZone");
+  const prevSessionFloatingBtn = document.getElementById("prevSessionFloating");
+  const nextSessionFloatingBtn = document.getElementById("nextSessionFloating");
   const gazePlayButton = document.getElementById("gazePlayButton");
   const gazePauseButton = document.getElementById("gazePauseButton");
   const gazeCurrentPoint = document.getElementById("gazeCurrentPoint");
@@ -1342,6 +1344,30 @@ document.addEventListener("DOMContentLoaded", () => {
     renderGazeArea(
       filterPupilSessions(cachedSessions || [], buildRecordingsMap(cachedRecordings || []))
     );
+  };
+
+  const shiftSelectedSession = (direction) => {
+    const recordingsByDate = buildRecordingsMap(cachedRecordings || []);
+    const filtered = filterPupilSessions(cachedSessions || [], recordingsByDate);
+    if (!filtered.length) {
+      return;
+    }
+    const keys = filtered.map((s) => s.sessionKey);
+    const currentIndex = keys.findIndex((key) => selectedPupilSessions.has(key));
+    let targetIndex = 0;
+    if (currentIndex >= 0) {
+      targetIndex =
+        direction === "next"
+          ? Math.min(keys.length - 1, currentIndex + 1)
+          : Math.max(0, currentIndex - 1);
+    } else {
+      targetIndex = direction === "next" ? 0 : keys.length - 1;
+    }
+    selectedPupilSessions.clear();
+    selectedPupilSessions.add(keys[targetIndex]);
+    pupilUserAdjusted = false;
+    renderPupilArea(filtered, recordingsByDate);
+    renderGazeArea(filtered);
   };
 
   const applyRangeToSelected = async () => {
@@ -3397,6 +3423,8 @@ document.addEventListener("DOMContentLoaded", () => {
     gazeStartZoneInputs[key]?.addEventListener("change", applyZoneInputs);
     gazeEndZoneInputs[key]?.addEventListener("change", applyZoneInputs);
   });
+  prevSessionFloatingBtn?.addEventListener("click", () => shiftSelectedSession("prev"));
+  nextSessionFloatingBtn?.addEventListener("click", () => shiftSelectedSession("next"));
 
   gazeCanvas?.addEventListener("mousedown", (event) => {
     if (!gazeZoneSelecting || !lastGazeDrawRect) return;
