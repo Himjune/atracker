@@ -2180,6 +2180,69 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.globalAlpha = 1;
     };
 
+    const drawBaselineOverlay = () => {
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 1.8;
+      const color = "#ff7b00";
+      series.forEach(({ session, points }) => {
+        const baseline = session?.baselineWindow;
+        if (!baseline) {
+          return;
+        }
+        const startIdx = Number.isInteger(baseline.startIndex) ? baseline.startIndex : baseline.index;
+        const endIdx = Number.isInteger(baseline.endIndex) ? baseline.endIndex : null;
+        const startTime =
+          Number(points?.[startIdx]?.timeOffsetMs) ??
+          Number(baseline.timeOffsetMs);
+        const endTime =
+          Number(points?.[endIdx]?.timeOffsetMs) ??
+          Number(points?.[startIdx]?.timeOffsetMs);
+        if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+          return;
+        }
+        const xStart = scaleX(startTime);
+        const xEnd = scaleX(endTime);
+        const variance = Number(baseline.variance);
+        const mean = Number(baseline.mean);
+        ctx.strokeStyle = color;
+        // vertical lines for interval
+        ctx.beginPath();
+        ctx.moveTo(xStart, padding.top);
+        ctx.lineTo(xStart, padding.top + plotH);
+        ctx.moveTo(xEnd, padding.top);
+        ctx.lineTo(xEnd, padding.top + plotH);
+        ctx.stroke();
+
+        // variance level (on variance axis)
+        if (Number.isFinite(variance)) {
+          const yVar = scaleVarianceY(variance);
+          ctx.beginPath();
+          ctx.moveTo(Math.min(xStart, xEnd), yVar);
+          ctx.lineTo(Math.max(xStart, xEnd), yVar);
+          ctx.stroke();
+        }
+
+        // mean pupil size (on pupil axis)
+        if (Number.isFinite(mean)) {
+          const yMean = scaleY(mean);
+          const chartXStart = padding.left;
+          const chartXEnd = padding.left + plotW;
+          ctx.setLineDash([]);
+          ctx.strokeStyle = "#0d6efd";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(chartXStart, yMean);
+          ctx.lineTo(chartXEnd, yMean);
+          ctx.stroke();
+          ctx.setLineDash([6, 4]);
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.8;
+        }
+      });
+      ctx.restore();
+    };
+
     seriesConfig.forEach((config) => {
       const points = pointsByType[config.key] || [];
       const validPoints = points.filter((p) => !p.isInvalid);
@@ -2238,6 +2301,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillText("Variance (smooth)", legendX + 16, legendY);
     }
 
+    drawBaselineOverlay();
 
     drawAxesOverlay();
   };
