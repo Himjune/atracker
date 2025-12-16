@@ -54,6 +54,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const includeInvalidPupilCheckbox = document.getElementById("includeInvalidPupil");
   const gazeCanvas = document.getElementById("gazeCanvas");
   const gazeColorMode = document.getElementById("gazeColorMode");
+  const gazeStartTimeInput = document.getElementById("gazeStartTime");
+  const gazeEndTimeInput = document.getElementById("gazeEndTime");
+  const gazeStartIndexInput = document.getElementById("gazeStartIndex");
+  const gazeEndIndexInput = document.getElementById("gazeEndIndex");
+  const gazeApplyRangeBtn = document.getElementById("gazeApplyRange");
+  const gazePlayButton = document.getElementById("gazePlayButton");
+  const gazePauseButton = document.getElementById("gazePauseButton");
+  const gazeCurrentPoint = document.getElementById("gazeCurrentPoint");
   const gazeStimulusStatus = document.getElementById("gazeStimulusStatus");
   const resetDbButton = document.getElementById("resetDbButton");
   const resetStatusElement = document.getElementById("resetStatus");
@@ -90,6 +98,12 @@ document.addEventListener("DOMContentLoaded", () => {
   let varianceUserAdjusted = false;
   let isPanning = false;
   let panStart = null;
+  let gazePlaybackTimer = null;
+  let gazePlaybackPoints = [];
+  let gazePlaybackFrame = null;
+  let gazePlaybackIndex = 0;
+  let gazePlaybackPaused = false;
+  const sessionPlaybackRanges = new Map();
   const stimulusImageCache = new Map();
 
   const getValidityThreshold = () => {
@@ -778,6 +792,27 @@ document.addEventListener("DOMContentLoaded", () => {
     return { xMin, xMax, yMin, yMax };
   };
 
+  const clampVarianceViewToBase = (view, base) => {
+    if (!view || !base) {
+      return view;
+    }
+    const targetRange = Math.min(
+      view.max - view.min || 1,
+      (base.max || 0) - (base.min || 0) || 1
+    );
+    let min = view.min;
+    let max = view.max;
+    if (min < base.min) {
+      min = base.min;
+      max = min + targetRange;
+    }
+    if (max > base.max) {
+      max = base.max;
+      min = max - targetRange;
+    }
+    return { min, max };
+  };
+
   const getChartMetrics = () => {
     const width = pupilChartCanvas?.width || 0;
     const height = pupilChartCanvas?.height || 0;
@@ -1144,6 +1179,225 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const getSessionRange = (sessionKey) => {
+    if (!sessionKey) return { start: null, end: null, startIndex: null, endIndex: null };
+    const stored = sessionPlaybackRanges.get(sessionKey);
+    if (stored) {
+      return stored;
+    }
+    const session =
+      (cachedSessions || []).find((s) => s.sessionKey === sessionKey) || null;
+    if (!session) {
+      return { start: null, end: null, startIndex: null, endIndex: null };
+    }
+    const startIndex = Number.isInteger(session.playbackStartIndex)
+      ? session.playbackStartIndex
+      : null;
+    const endIndex = Number.isInteger(session.playbackEndIndex)
+      ? session.playbackEndIndex
+      : null;
+    const points = getSessionPoints(session);
+    const startTime =
+      startIndex !== null ? Number(points?.[startIndex]?.timeOffsetMs) : null;
+    const endTime =
+      endIndex !== null ? Number(points?.[endIndex]?.timeOffsetMs) : null;
+    const range = {
+      start: Number.isFinite(startTime) ? startTime : null,
+      end: Number.isFinite(endTime) ? endTime : null,
+      startIndex,
+      endIndex,
+    };
+    sessionPlaybackRanges.set(sessionKey, range);
+    return range;
+  };
+
+  const getFirstSelectedSession = () =>
+    (cachedSessions || []).find((s) => selectedPupilSessions.has(s.sessionKey)) || null;
+
+  const updateRangeInputs = (range = {}) => {
+    if (gazeStartTimeInput) {
+      gazeStartTimeInput.value = Number.isFinite(range.start) ? range.start : "";
+    }
+    if (gazeEndTimeInput) {
+      gazeEndTimeInput.value = Number.isFinite(range.end) ? range.end : "";
+    }
+    if (gazeStartIndexInput) {
+      gazeStartIndexInput.value =
+        Number.isInteger(range.startIndex) && range.startIndex >= 0
+          ? range.startIndex
+          : "";
+    }
+    if (gazeEndIndexInput) {
+      gazeEndIndexInput.value =
+        Number.isInteger(range.endIndex) && range.endIndex >= 0 ? range.endIndex : "";
+    }
+  };
+
+  const syncIndicesFromTimes = () => {
+    const session = getFirstSelectedSession();
+    if (!session) return;
+    const points = getSessionPoints(session);
+    if (!Array.isArray(points) || points.length === 0) return;
+    const startValue = Number(gazeStartTimeInput?.value);
+    const endValue = Number(gazeEndTimeInput?.value);
+    const start = Number.isFinite(startValue) && startValue >= 0 ? startValue : null;
+    const end = Number.isFinite(endValue) && endValue >= 0 ? endValue : null;
+    const startIdx =
+      start === null
+        ? 0
+        : points.findIndex(
+            (p) => Number.isFinite(p?.timeOffsetMs) && p.timeOffsetMs >= start
+          );
+    const endIdx = (() => {
+      if (end === null) return points.length - 1;
+      for (let i = points.length - 1; i >= 0; i -= 1) {
+        const t = Number(points[i]?.timeOffsetMs);
+        if (Number.isFinite(t) && t <= end) {
+          return i;
+        }
+      }
+      return startIdx >= 0 ? startIdx : 0;
+    })();
+    if (gazeStartIndexInput) {
+      gazeStartIndexInput.value = startIdx >= 0 ? startIdx : "";
+    }
+    if (gazeEndIndexInput) {
+      gazeEndIndexInput.value = endIdx >= 0 ? endIdx : "";
+    }
+  };
+
+  const syncTimesFromIndices = () => {
+    const session = getFirstSelectedSession();
+    if (!session) return;
+    const points = getSessionPoints(session);
+    if (!Array.isArray(points) || points.length === 0) return;
+    const startIdxVal = Number(gazeStartIndexInput?.value);
+    const endIdxVal = Number(gazeEndIndexInput?.value);
+    const clamp = (idx) =>
+      Number.isInteger(idx) && idx >= 0 ? Math.min(points.length - 1, idx) : null;
+    const startIdx = clamp(startIdxVal);
+    const endIdx = clamp(endIdxVal);
+    if (gazeStartTimeInput) {
+      gazeStartTimeInput.value =
+        startIdx !== null && Number.isFinite(points[startIdx]?.timeOffsetMs)
+          ? points[startIdx].timeOffsetMs
+          : "";
+    }
+    if (gazeEndTimeInput) {
+      gazeEndTimeInput.value =
+        endIdx !== null && Number.isFinite(points[endIdx]?.timeOffsetMs)
+          ? points[endIdx].timeOffsetMs
+          : "";
+    }
+  };
+
+  const applyRangeToSelected = async () => {
+    const startValue = Number(gazeStartTimeInput?.value);
+    const endValue = Number(gazeEndTimeInput?.value);
+    const start = Number.isFinite(startValue) && startValue >= 0 ? startValue : null;
+    const end = Number.isFinite(endValue) && endValue >= 0 ? endValue : null;
+    const startIndexInputVal = Number(gazeStartIndexInput?.value);
+    const endIndexInputVal = Number(gazeEndIndexInput?.value);
+    const startIndexInput =
+      Number.isInteger(startIndexInputVal) && startIndexInputVal >= 0
+        ? startIndexInputVal
+        : null;
+    const endIndexInput =
+      Number.isInteger(endIndexInputVal) && endIndexInputVal >= 0
+        ? endIndexInputVal
+        : null;
+    if (end !== null && start !== null && end < start) {
+      setGazeStatus("Конец не может быть меньше старта.", "warning");
+      return;
+    }
+    const selected = Array.from(selectedPupilSessions || []);
+    if (selected.length === 0) {
+      setGazeStatus("Сначала выберите хотя бы одну сессию.", "warning");
+      return;
+    }
+    const updatedSessions = [];
+    selected.forEach((key) => {
+      const session =
+        (cachedSessions || []).find((s) => s.sessionKey === key) || null;
+      if (!session) return;
+      const points = getSessionPoints(session);
+      const total = Array.isArray(points) ? points.length : 0;
+      const clampIndex = (idx) => {
+        if (!Number.isInteger(idx) || idx < 0 || total === 0) return null;
+        return Math.min(total - 1, idx);
+      };
+      const startIdx = clampIndex(startIndexInput);
+      const endIdx = clampIndex(endIndexInput);
+      const calcStartIdx =
+        startIdx !== null
+          ? startIdx
+          : (() => {
+              if (!Array.isArray(points) || points.length === 0) return null;
+              if (start === null) return 0;
+              const idx = points.findIndex(
+                (p) => Number.isFinite(p?.timeOffsetMs) && p.timeOffsetMs >= start
+              );
+              return idx >= 0 ? idx : points.length - 1;
+            })();
+      const calcEndIdx =
+        endIdx !== null
+          ? endIdx
+          : (() => {
+              if (!Array.isArray(points) || points.length === 0) return null;
+              if (end === null) return points.length - 1;
+              for (let i = points.length - 1; i >= 0; i -= 1) {
+                const t = Number(points[i]?.timeOffsetMs);
+                if (Number.isFinite(t) && t <= end) {
+                  return i;
+                }
+              }
+              return calcStartIdx !== null ? calcStartIdx : null;
+            })();
+      const startIndex = clampIndex(calcStartIdx);
+      const endIndex = clampIndex(calcEndIdx !== null ? calcEndIdx : calcStartIdx);
+      const startTimeActual =
+        startIndex !== null ? Number(points?.[startIndex]?.timeOffsetMs) : null;
+      const endTimeActual =
+        endIndex !== null ? Number(points?.[endIndex]?.timeOffsetMs) : null;
+      const range = {
+        start: Number.isFinite(startTimeActual) ? startTimeActual : start,
+        end: Number.isFinite(endTimeActual) ? endTimeActual : end,
+        startIndex,
+        endIndex,
+      };
+      sessionPlaybackRanges.set(key, range);
+      updatedSessions.push({
+        ...session,
+        playbackStartIndex: startIndex,
+        playbackEndIndex: endIndex,
+      });
+    });
+
+    if (updatedSessions.length > 0) {
+      try {
+        await Promise.all(
+          updatedSessions.map((session) => window.eyeTrackerDB.addSession(session))
+        );
+        cachedSessions = (cachedSessions || []).map((session) => {
+          const found = updatedSessions.find((s) => s.sessionKey === session.sessionKey);
+          return found ? found : session;
+        });
+        setGazeStatus(
+          `Интервал сохранен в БД для ${updatedSessions.length} сессий.`,
+          "success"
+        );
+      } catch (error) {
+        console.error(error);
+        setGazeStatus("Не удалось сохранить интервал в БД.", "danger");
+      }
+    }
+
+    renderPupilArea(cachedSessions || [], buildRecordingsMap(cachedRecordings || []));
+    renderGazeArea(
+      filterPupilSessions(cachedSessions || [], buildRecordingsMap(cachedRecordings || []))
+    );
+  };
+
   const recomputeStoredPoints = async () => {
     if (!window.eyeTrackerDB) {
       setRecomputeStatus("Хранилище недоступно.", "danger");
@@ -1472,7 +1726,58 @@ document.addEventListener("DOMContentLoaded", () => {
     return `hsl(${hue}, 85%, 50%)`;
   };
 
+  const stopGazePlayback = () => {
+    if (gazePlaybackTimer) {
+      clearInterval(gazePlaybackTimer);
+      gazePlaybackTimer = null;
+    }
+    gazePlaybackIndex = 0;
+    gazePlaybackPaused = false;
+    gazePlayButton?.removeAttribute("disabled");
+    if (gazePlayButton) {
+      gazePlayButton.textContent = "▶ Проиграть точки";
+    }
+    if (gazeCurrentPoint) {
+      gazeCurrentPoint.value = "";
+    }
+    if (gazePauseButton) {
+      gazePauseButton.textContent = "❚❚ Пауза";
+    }
+  };
+
+  const resumeGazePlayback = () => {
+    if (!gazeCanvas || !gazePlaybackFrame || gazePlaybackPoints.length === 0) {
+      return;
+    }
+    gazePlaybackPaused = false;
+    if (gazePlayButton) {
+      gazePlayButton.textContent = "■ Стоп";
+    }
+    if (gazePauseButton) {
+      gazePauseButton.textContent = "❚❚ Пауза";
+    }
+    gazePlaybackTimer = setInterval(drawGazePlaybackStep, 16);
+  };
+
+  const pauseGazePlayback = () => {
+    if (gazePlaybackTimer) {
+      clearInterval(gazePlaybackTimer);
+      gazePlaybackTimer = null;
+      gazePlaybackPaused = true;
+      if (gazePlayButton) {
+        gazePlayButton.textContent = "▶ Продолжить";
+      }
+      if (gazePauseButton) {
+        gazePauseButton.textContent = "▶ Продолжить";
+      }
+    } else if (gazePlaybackPaused) {
+      resumeGazePlayback();
+    }
+  };
+
   const renderGazeCanvas = async (sessions) => {
+    stopGazePlayback();
+
     if (!gazeCanvas) {
       return;
     }
@@ -1502,6 +1807,10 @@ document.addEventListener("DOMContentLoaded", () => {
       emptyCanvas("Сессии не выбраны");
       return;
     }
+    const selectedRanges = selected.reduce((acc, session) => {
+      acc[session.sessionKey] = getSessionRange(session.sessionKey);
+      return acc;
+    }, {});
 
     const stimuli = Array.from(
       new Set(
@@ -1558,17 +1867,28 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const colorMode = gazeColorMode?.value || "session";
+    const playbackPoints = [];
+    gazePlaybackFrame = ctx.getImageData(0, 0, width, height);
     const points = stimulusSessions
       .flatMap((session) =>
-        getSessionPoints(session).map((point) => ({
-          x: Number(point.x),
-          y: Number(point.y),
-          time: Number(point.timeOffsetMs),
-          sessionKey: session.sessionKey,
-        }))
+        getSessionPoints(session).map((point) => {
+          const time = Number(point.timeOffsetMs);
+          const range = selectedRanges[session.sessionKey] || {};
+          if (Number.isFinite(time)) {
+            if (Number.isFinite(range.start) && time < range.start) return null;
+            if (Number.isFinite(range.end) && time > range.end) return null;
+          }
+          return {
+            x: Number(point.x),
+            y: Number(point.y),
+            time,
+            sessionKey: session.sessionKey,
+          };
+        })
       )
       .filter(
         (pt) =>
+          pt &&
           Number.isFinite(pt.x) &&
           Number.isFinite(pt.y) &&
           pt.x !== null &&
@@ -1608,6 +1928,9 @@ document.addEventListener("DOMContentLoaded", () => {
       img ? "muted" : "warning"
     );
 
+    const initialRange = selectedRanges[stimulusSessions[0]?.sessionKey] || {};
+    updateRangeInputs(initialRange);
+
     points.forEach((pt, index) => {
       const px = drawRect.x + pt.x * drawRect.width;
       const py = drawRect.y + pt.y * drawRect.height;
@@ -1627,6 +1950,15 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.arc(px, py, 4, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+
+      playbackPoints.push({
+        px,
+        py,
+        color,
+        time: pt.time,
+        sessionKey: pt.sessionKey,
+        order: index,
+      });
     });
 
     const legendSessions = Array.from(
@@ -1643,9 +1975,92 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillText(sessionKey, legendX + 16, legendY + 1);
       legendX += ctx.measureText(sessionKey).width + 52;
     });
+
+    gazePlaybackPoints = playbackPoints
+      .slice()
+      .sort((a, b) => {
+        const aTime = Number.isFinite(a.time) ? a.time : Number.POSITIVE_INFINITY;
+        const bTime = Number.isFinite(b.time) ? b.time : Number.POSITIVE_INFINITY;
+        if (aTime === bTime) {
+          return a.order - b.order;
+        }
+        return aTime - bTime;
+      });
+    gazePlaybackIndex = 0;
   };
 
   const renderGazeArea = (sessions) => renderGazeCanvas(sessions);
+  const drawGazePlaybackStep = () => {
+    if (!gazeCanvas || !gazePlaybackFrame || gazePlaybackPoints.length === 0) {
+      stopGazePlayback();
+      return;
+    }
+    const ctx = gazeCanvas.getContext("2d");
+    ctx.putImageData(gazePlaybackFrame, 0, 0);
+    const len = gazePlaybackPoints.length;
+    const currentIdx = gazePlaybackIndex % len;
+    const upto = currentIdx;
+    for (let i = 0; i <= upto; i += 1) {
+      const point = gazePlaybackPoints[i];
+      if (!point) continue;
+      ctx.save();
+      ctx.fillStyle = point.color || "#0dcaf0";
+      ctx.strokeStyle = "#ffffffaa";
+      const radius = i === upto ? 6 : 4;
+      ctx.beginPath();
+      ctx.arc(point.px, point.py, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+    gazePlaybackIndex = (currentIdx + 1) % len;
+    const current = gazePlaybackPoints[currentIdx];
+    if (gazeCurrentPoint && current) {
+      const timeLabel = Number.isFinite(current.time) ? current.time.toFixed(2) : "—";
+      gazeCurrentPoint.value = `${currentIdx}`;
+      gazeCurrentPoint.setAttribute("title", `Сессия: ${current.sessionKey} · t=${timeLabel} c`);
+    }
+  };
+
+  const handleGazePlay = async () => {
+    if (!gazePlayButton) {
+      return;
+    }
+    if (gazePlaybackTimer) {
+      stopGazePlayback();
+      return;
+    }
+    if (gazePlaybackPaused && gazePlaybackFrame && gazePlaybackPoints.length > 0) {
+      resumeGazePlayback();
+      return;
+    }
+    gazePlayButton.setAttribute("disabled", "disabled");
+    gazePlayButton.textContent = "Загрузка...";
+    const recordingsByDate = buildRecordingsMap(cachedRecordings || []);
+    const filtered = filterPupilSessions(cachedSessions || [], recordingsByDate);
+    await renderGazeCanvas(filtered);
+    if (!gazePlaybackFrame || gazePlaybackPoints.length === 0) {
+      gazePlayButton.textContent = "▶ Проиграть точки";
+      gazePlayButton.removeAttribute("disabled");
+      setGazeStatus("Нет точек для проигрывания.", "warning");
+      return;
+    }
+    gazePlayButton.textContent = "■ Стоп";
+    gazePlayButton.removeAttribute("disabled");
+    if (gazePauseButton) {
+      gazePauseButton.textContent = "❚❚ Пауза";
+    }
+    gazePlaybackPaused = false;
+    gazePlaybackTimer = setInterval(drawGazePlaybackStep, 16);
+  };
+
+  const jumpToPlaybackIndex = (idx) => {
+    if (!Number.isInteger(idx) || idx < 0 || idx >= gazePlaybackPoints.length) {
+      return;
+    }
+    gazePlaybackIndex = idx;
+    drawGazePlaybackStep();
+  };
 
   const renderPupilSelector = (sessions, recordingsByDate = new Map()) => {
     if (!pupilSessionList) {
@@ -1692,7 +2107,6 @@ document.addEventListener("DOMContentLoaded", () => {
           } else {
             selectedPupilSessions.delete(key);
           }
-          pupilUserAdjusted = false;
           renderPupilChart(sessions);
           renderGazeArea(sessions);
         })
@@ -1724,6 +2138,18 @@ document.addEventListener("DOMContentLoaded", () => {
         points: getSessionPoints(session),
       }))
       .filter((entry) => entry.points.length > 0);
+    const sessionMeans = series.map(({ session, points }) => {
+      const values = points
+        .filter((p) => !p.isInvalid)
+        .map((p) => Number(p?.interpolated?.pupilAvg))
+        .filter((v) => Number.isFinite(v));
+      if (values.length === 0) {
+        return null;
+      }
+      const mean =
+        values.reduce((acc, val) => acc + val, 0) / values.length;
+      return { sessionKey: session.sessionKey, mean };
+    });
 
     if (series.length === 0) {
       pupilDataBounds = null;
@@ -1739,6 +2165,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const showInterpolatedVariance =
       showInterpolatedVarianceCheckbox?.checked || false;
     const showSmoothVariance = showSmoothVarianceCheckbox?.checked || false;
+    const rangesBySession = selected.reduce((acc, session) => {
+      acc[session.sessionKey] = getSessionRange(session.sessionKey);
+      return acc;
+    }, {});
+    const inRange = (time, range) => {
+      if (!range) return true;
+      if (Number.isFinite(range.start) && Number.isFinite(time) && time < range.start) return false;
+      if (Number.isFinite(range.end) && Number.isFinite(time) && time > range.end) return false;
+      return true;
+    };
     const seriesConfig = [
       {
         key: "left",
@@ -1775,6 +2211,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const varianceSmoothPoints = [];
     const allPoints = [];
     series.forEach(({ session, points }) => {
+      const range = rangesBySession[session.sessionKey] || {};
       points.forEach((p) => {
         const time = p.timeOffsetMs;
         if (!Number.isFinite(time)) {
@@ -1876,6 +2313,7 @@ document.addEventListener("DOMContentLoaded", () => {
             type: config.key,
             isInvalid,
             sessionKey: session.sessionKey,
+            inRange: inRange(time, range),
           });
         });
       });
@@ -1935,8 +2373,12 @@ document.addEventListener("DOMContentLoaded", () => {
     pupilDataBounds = { xMin: minX, xMax: maxX, yMin: minY, yMax: maxY };
     pupilBaseView = expandBounds(pupilDataBounds);
 
-    if (!pupilView || !pupilUserAdjusted) {
+    if (!pupilView) {
       pupilView = { ...pupilBaseView };
+    } else if (!pupilUserAdjusted) {
+      pupilView = { ...pupilBaseView };
+    } else {
+      pupilView = clampViewToBounds(pupilView, pupilDataBounds);
     }
 
     const safeRange = (value, fallback) =>
@@ -1956,8 +2398,12 @@ document.addEventListener("DOMContentLoaded", () => {
       max: varianceMax + variancePadding,
     };
     varianceBaseView = varianceBase;
-    if (!varianceView || !varianceUserAdjusted) {
+    if (!varianceView) {
       varianceView = { ...varianceBase };
+    } else if (!varianceUserAdjusted) {
+      varianceView = { ...varianceBase };
+    } else {
+      varianceView = clampVarianceViewToBase(varianceView, varianceBase);
     }
     const varianceViewRange = safeRange(
       (varianceView?.max ?? varianceBase.max) - (varianceView?.min ?? varianceBase.min),
@@ -2009,6 +2455,30 @@ document.addEventListener("DOMContentLoaded", () => {
     // сетка 500 мс на фоне
     drawTimeGrid();
 
+    const drawRangeMask = () => {
+      const starts = Object.values(rangesBySession || {})
+        .map((r) => r?.start)
+        .filter((v) => Number.isFinite(v));
+      const ends = Object.values(rangesBySession || {})
+        .map((r) => r?.end)
+        .filter((v) => Number.isFinite(v));
+      const minStart = starts.length ? Math.min(...starts) : null;
+      const maxEnd = ends.length ? Math.max(...ends) : null;
+      ctx.save();
+      ctx.fillStyle = "rgba(108, 117, 125, 0.12)";
+      if (Number.isFinite(minStart) && minStart > pupilView.xMin) {
+        const xStart = padding.left;
+        const xEnd = scaleX(minStart);
+        ctx.fillRect(xStart, padding.top, Math.max(0, xEnd - xStart), plotH);
+      }
+      if (Number.isFinite(maxEnd) && maxEnd < pupilView.xMax) {
+        const xStart = scaleX(maxEnd);
+        const xEnd = padding.left + plotW;
+        ctx.fillRect(xStart, padding.top, Math.max(0, xEnd - xStart), plotH);
+      }
+      ctx.restore();
+    };
+
     const drawXTicks = () => {
       const stepSeconds = getTimeStepSeconds();
       const start = Math.max(
@@ -2056,6 +2526,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     drawXTicks();
     drawYTicks();
+    drawRangeMask();
     const drawVarianceYTicks = () => {
       if (!varianceYValues.length || !varianceView) {
         return;
@@ -2180,6 +2651,30 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.globalAlpha = 1;
     };
 
+    const drawSessionMeans = () => {
+      ctx.save();
+      ctx.strokeStyle = "#198754";
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([10, 6]);
+      (sessionMeans || []).forEach((entry, idx) => {
+        if (!entry || !Number.isFinite(entry.mean)) {
+          return;
+        }
+        const y = scaleY(entry.mean);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(padding.left + plotW, y);
+        ctx.stroke();
+        // optional small label on the right
+        ctx.fillStyle = "#198754";
+        ctx.font = "11px sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(entry.sessionKey, padding.left + plotW + 6, y);
+      });
+      ctx.restore();
+    };
+
     const drawBaselineOverlay = () => {
       ctx.save();
       ctx.setLineDash([6, 4]);
@@ -2245,10 +2740,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     seriesConfig.forEach((config) => {
       const points = pointsByType[config.key] || [];
-      const validPoints = points.filter((p) => !p.isInvalid);
+      const validInRange = points.filter((p) => !p.isInvalid && p.inRange !== false);
       const invalidPoints = points.filter((p) => p.isInvalid);
-      if (validPoints.length > 0) {
-        drawPoints(validPoints, config.color);
+      if (validInRange.length > 0) {
+        drawPoints(validInRange, config.color);
       }
       if (includeInvalid && invalidPoints.length > 0) {
         drawPoints(invalidPoints, config.faded);
@@ -2301,6 +2796,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillText("Variance (smooth)", legendX + 16, legendY);
     }
 
+    drawSessionMeans();
     drawBaselineOverlay();
 
     drawAxesOverlay();
@@ -2311,17 +2807,11 @@ document.addEventListener("DOMContentLoaded", () => {
     filterPupilSessions(cachedSessions || [], recordingsByDate).forEach(
       (session) => selectedPupilSessions.add(session.sessionKey)
     );
-    pupilUserAdjusted = false;
-    pupilView = pupilBaseView ? { ...pupilBaseView } : pupilView;
     renderPupilArea(cachedSessions || [], recordingsByDate);
   };
 
   const clearAllPupilSessions = () => {
     selectedPupilSessions.clear();
-    pupilUserAdjusted = false;
-    varianceUserAdjusted = false;
-    pupilView = pupilBaseView ? { ...pupilBaseView } : pupilView;
-    varianceView = varianceBaseView ? { ...varianceBaseView } : varianceView;
     renderPupilArea(cachedSessions || [], buildRecordingsMap());
   };
 
@@ -2581,6 +3071,21 @@ document.addEventListener("DOMContentLoaded", () => {
       )
     )
   );
+  gazeApplyRangeBtn?.addEventListener("click", () => applyRangeToSelected());
+  [gazeStartTimeInput, gazeEndTimeInput].forEach((input) =>
+    input?.addEventListener("change", () => syncIndicesFromTimes())
+  );
+  [gazeStartIndexInput, gazeEndIndexInput].forEach((input) =>
+    input?.addEventListener("change", () => syncTimesFromIndices())
+  );
+  gazeCurrentPoint?.addEventListener("change", () => {
+    const idx = Number(gazeCurrentPoint.value);
+    if (Number.isInteger(idx) && idx >= 0) {
+      jumpToPlaybackIndex(Math.min(idx, gazePlaybackPoints.length - 1));
+    }
+  });
+  gazePauseButton?.addEventListener("click", () => pauseGazePlayback());
+  gazePlayButton?.addEventListener("click", handleGazePlay);
   const handleThresholdChange = () => {
     setRecomputeStatus(
       "Параметры изменены. Нажмите «Пересчитать точки», чтобы обновить сохраненные данные.",
