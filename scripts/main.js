@@ -30,6 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const zoomXAxisInBtn = document.getElementById("zoomXAxisIn");
   const zoomXAxisOutBtn = document.getElementById("zoomXAxisOut");
   const baselineWindowSizeInput = document.getElementById("baselineWindowSize");
+  const baselineSearchLengthInput = document.getElementById("baselineSearchLength");
   const zoomPupilYInBtn = document.getElementById("zoomPupilYIn");
   const zoomPupilYOutBtn = document.getElementById("zoomPupilYOut");
   const zoomVarianceYInBtn = document.getElementById("zoomVarianceYIn");
@@ -126,6 +127,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const fallback =
       Number(baselineModule?.DEFAULT_WINDOW_SIZE_SECONDS) || 0.5;
     const value = Number(baselineWindowSizeInput?.value);
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    return fallback;
+  };
+
+  const getBaselineSearchLength = () => {
+    const fallback =
+      Number(baselineModule?.DEFAULT_SEARCH_LEN_SECONDS) || 3;
+    const value = Number(baselineSearchLengthInput?.value);
     if (Number.isFinite(value) && value > 0) {
       return value;
     }
@@ -506,6 +517,35 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
+  const selectMinVarianceBaseline = (baselines = [], points = [], searchLengthSeconds) => {
+    const maxTime = Number.isFinite(searchLengthSeconds)
+      ? Math.max(0, searchLengthSeconds)
+      : null;
+
+    let best = null;
+    for (let i = 0; i < baselines.length; i += 1) {
+      const baseline = baselines[i];
+      const variance = Number(baseline?.variance);
+      if (!Number.isFinite(variance)) {
+        continue;
+      }
+      const timeOffsetMs = Number(points[i]?.timeOffsetMs);
+      if (Number.isFinite(maxTime) && (!Number.isFinite(timeOffsetMs) || timeOffsetMs > maxTime)) {
+        break;
+      }
+      if (best && variance >= best.variance) {
+        continue;
+      }
+      best = {
+        ...(baseline || {}),
+        variance,
+        index: i,
+        timeOffsetMs: Number.isFinite(timeOffsetMs) ? timeOffsetMs : null,
+      };
+    }
+    return best;
+  };
+
   const preparePoints = (points = []) => {
     const rawPoints = Array.isArray(points)
       ? points.map((pt) => normalizePointRaw(pt))
@@ -514,10 +554,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const interpolatedPoints = buildInterpolatedPoints(rawPoints);
     const smoothPoints = buildSmoothedPoints(interpolatedPoints);
     const windowSize = getBaselineWindowSize();
+    const baselineSearchLength = getBaselineSearchLength();
     const interpolatedBaselines =
       baselineModule?.computeBaselineWindows(interpolatedPoints, windowSize) ?? [];
     const smoothBaselines =
       baselineModule?.computeBaselineWindows(smoothPoints, windowSize) ?? [];
+    const baselineWindow = selectMinVarianceBaseline(
+      interpolatedBaselines,
+      interpolatedPoints,
+      baselineSearchLength
+    );
 
     interpolatedPoints.forEach((pt, index) => {
       if (pt) {
@@ -541,6 +587,7 @@ document.addEventListener("DOMContentLoaded", () => {
       smoothPoints,
       combinedPoints,
       medians,
+      baselineWindow,
     };
   };
 
@@ -579,7 +626,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const getSessionPoints = (session) => {
     if (Array.isArray(session?.points)) {
-      const { combinedPoints, medians } = preparePoints(session.points);
+      const { combinedPoints, medians, baselineWindow } = preparePoints(session.points);
       if (medians) {
         session.rawDilationSpeedLeftMedian = medians.leftMedian;
         session.rawDilationSpeedRightMedian = medians.rightMedian;
@@ -588,6 +635,7 @@ document.addEventListener("DOMContentLoaded", () => {
         session.rawDilationSpeedLeftMADThreshold = medians.leftMadThreshold;
         session.rawDilationSpeedRightMADThreshold = medians.rightMadThreshold;
       }
+      session.baselineWindow = baselineWindow || null;
       return combinedPoints;
     }
     /*if (Array.isArray(session?.points?.raw)) {
@@ -1088,6 +1136,7 @@ document.addEventListener("DOMContentLoaded", () => {
           interpolatedPoints,
           smoothPoints,
           medians,
+          baselineWindow,
         } = preparePoints(session.points);
         const points = normalizedRawPoints.map((raw, index) => ({
           raw,
@@ -1121,6 +1170,7 @@ document.addEventListener("DOMContentLoaded", () => {
           rawDilationSpeedRightMedian,
           rawDilationSpeedLeftMADThreshold,
           rawDilationSpeedRightMADThreshold,
+          baselineWindow: baselineWindow || null,
         };
       });
 
@@ -1181,6 +1231,7 @@ document.addEventListener("DOMContentLoaded", () => {
               interpolatedPoints,
               smoothPoints,
               medians,
+              baselineWindow,
             } = preparePoints(session.points);
             const mappedPoints = normalizedRawPoints.map((raw, index) => ({
               raw,
@@ -1208,6 +1259,7 @@ document.addEventListener("DOMContentLoaded", () => {
               rawDilationSpeedRightMedian,
               rawDilationSpeedLeftMADThreshold,
               rawDilationSpeedRightMADThreshold,
+              baselineWindow: baselineWindow || null,
               createdAt: session.sessionKey,
               sourceFile: file.name,
             });
@@ -2477,6 +2529,9 @@ document.addEventListener("DOMContentLoaded", () => {
   shiftXAxisRightBtn?.addEventListener("click", () => shiftXAxis("right"));
   gotoTimeBtn?.addEventListener("click", gotoTime);
   baselineWindowSizeInput?.addEventListener("change", () =>
+    renderPupilChart(cachedSessions || [])
+  );
+  baselineSearchLengthInput?.addEventListener("change", () =>
     renderPupilChart(cachedSessions || [])
   );
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
