@@ -574,6 +574,10 @@
                     <input class="form-check-input" type="checkbox" id="includeInvalidPupil" />
                     <label class="form-check-label small" for="includeInvalidPupil">Показывать невалидные</label>
                   </div>
+                  <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="showSessionMeans" checked />
+                    <label class="form-check-label small" for="showSessionMeans">Линии средних</label>
+                  </div>
                 </div>
                 <div class="d-flex flex-wrap align-items-center gap-3 px-2 pb-2">
                   <span class="small text-muted">Масштаб:</span>
@@ -614,6 +618,13 @@
                       placeholder="0.5"
                     />
                   </div>
+                  <button
+                    class="btn btn-outline-warning btn-sm"
+                    id="selectBaselineButton"
+                    type="button"
+                  >
+                    Выбрать baseline
+                  </button>
                   <div class="btn-group btn-group-sm" role="group" aria-label="Move X">
                     <button class="btn btn-outline-secondary" id="shiftXAxisLeft" type="button">←</button>
                     <button class="btn btn-outline-secondary" id="shiftXAxisRight" type="button">→</button>
@@ -641,6 +652,7 @@
                     <button class="btn btn-outline-warning" id="shiftVarianceYUp" type="button">↑ var</button>
                   </div>
                 </div>
+                <div class="px-2 text-muted small" id="baselineSelectStatus"></div>
                 <canvas
                   id="pupilChart"
                   width="800"

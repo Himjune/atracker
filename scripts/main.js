@@ -32,6 +32,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const baselineWindowSizeInput = document.getElementById("baselineWindowSize");
   const baselineSearchLengthInput = document.getElementById("baselineSearchLength");
   const baselineSearchStartInput = document.getElementById("baselineSearchStart");
+  const selectBaselineBtn = document.getElementById("selectBaselineButton");
+  const baselineSelectStatus = document.getElementById("baselineSelectStatus");
   const zoomPupilYInBtn = document.getElementById("zoomPupilYIn");
   const zoomPupilYOutBtn = document.getElementById("zoomPupilYOut");
   const zoomVarianceYInBtn = document.getElementById("zoomVarianceYIn");
@@ -51,6 +53,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const showLeftPupilCheckbox = document.getElementById("showLeftPupil");
   const showRightPupilCheckbox = document.getElementById("showRightPupil");
   const showAvgPupilCheckbox = document.getElementById("showAvgPupil");
+  const showSessionMeansCheckbox = document.getElementById("showSessionMeans");
   const includeInvalidPupilCheckbox = document.getElementById("includeInvalidPupil");
   const gazeCanvas = document.getElementById("gazeCanvas");
   const gazeColorMode = document.getElementById("gazeColorMode");
@@ -622,6 +625,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const windowSize = getBaselineWindowSize();
     const baselineSearchLength = getBaselineSearchLength();
     const baselineSearchStart = getBaselineSearchStart();
+    const baselineParams = {
+      windowSizeSeconds: windowSize,
+      searchLengthSeconds: baselineSearchLength,
+      searchStartSeconds: baselineSearchStart,
+    };
     const interpolatedBaselines =
       baselineModule?.computeBaselineWindows(interpolatedPoints, windowSize) ?? [];
     const smoothBaselines =
@@ -632,6 +640,9 @@ document.addEventListener("DOMContentLoaded", () => {
       baselineSearchLength,
       baselineSearchStart
     );
+    const baselineWindowWithParams = baselineWindow
+      ? { ...baselineWindow, ...baselineParams }
+      : null;
 
     interpolatedPoints.forEach((pt, index) => {
       if (pt) {
@@ -655,7 +666,7 @@ document.addEventListener("DOMContentLoaded", () => {
       smoothPoints,
       combinedPoints,
       medians,
-      baselineWindow,
+      baselineWindow: baselineWindowWithParams,
     };
   };
 
@@ -878,6 +889,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     stimulusUploadStatus.textContent = message;
     stimulusUploadStatus.className = `small text-${type}`;
+  };
+
+  const setBaselineSelectStatus = (message, type = "muted") => {
+    if (!baselineSelectStatus) {
+      return;
+    }
+    baselineSelectStatus.textContent = message;
+    baselineSelectStatus.className = `px-2 small text-${type}`;
   };
 
   const setGazeStatus = (message, type = "muted") => {
@@ -1517,6 +1536,70 @@ document.addEventListener("DOMContentLoaded", () => {
     renderGazeArea(
       filterPupilSessions(cachedSessions || [], buildRecordingsMap(cachedRecordings || []))
     );
+  };
+
+  const selectBaselineForSelected = async () => {
+    if (!window.eyeTrackerDB) {
+      setBaselineSelectStatus("Хранилище недоступно.", "danger");
+      return;
+    }
+    const selected = Array.from(selectedPupilSessions || []);
+    if (selected.length === 0) {
+      setBaselineSelectStatus("Сначала выберите хотя бы одну сессию.", "warning");
+      return;
+    }
+
+    const updatedSessions = [];
+    let missingBaseline = 0;
+
+    selected.forEach((key) => {
+      const session =
+        (cachedSessions || []).find((s) => s.sessionKey === key) || null;
+      if (!session) return;
+      getSessionPoints(session); // обновляем baseline с текущими параметрами
+      const baseline = session.baselineWindow;
+      if (!baseline) {
+        missingBaseline += 1;
+        return;
+      }
+      const selectedBaselineWindow = { ...baseline };
+      updatedSessions.push({
+        ...session,
+        selectedBaselineWindow,
+      });
+    });
+
+    if (updatedSessions.length === 0) {
+      setBaselineSelectStatus(
+        missingBaseline > 0
+          ? "Нет вычисленного baseline для выбранных сессий."
+          : "Нечего сохранять.",
+        "warning"
+      );
+      return;
+    }
+
+    try {
+      await Promise.all(
+        updatedSessions.map((session) => window.eyeTrackerDB.addSession(session))
+      );
+      cachedSessions = (cachedSessions || []).map((session) => {
+        const found = updatedSessions.find((s) => s.sessionKey === session.sessionKey);
+        return found ? found : session;
+      });
+      const suffix =
+        missingBaseline > 0
+          ? ` (пропущено без baseline: ${missingBaseline})`
+          : "";
+      setBaselineSelectStatus(
+        `Baseline сохранен для ${updatedSessions.length} сессий${suffix}.`,
+        "success"
+      );
+      renderPupilChart(cachedSessions || []);
+    } catch (error) {
+      console.error(error);
+      setBaselineSelectStatus("Не удалось сохранить baseline в БД.", "danger");
+    }
   };
 
   const resetRangeForSelected = async () => {
@@ -2954,6 +3037,9 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const drawSessionMeans = () => {
+      if (showSessionMeansCheckbox?.checked === false) {
+        return;
+      }
       ctx.save();
       ctx.strokeStyle = "#198754";
       ctx.lineWidth = 1.8;
@@ -2978,23 +3064,23 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const drawBaselineOverlay = () => {
-      ctx.save();
-      ctx.setLineDash([6, 4]);
-      ctx.lineWidth = 1.8;
-      const color = "#ff7b00";
-      series.forEach(({ session, points }) => {
-        const baseline = session?.baselineWindow;
+      const drawBaseline = (
+        baseline,
+        color,
+        meanColor = color,
+        sourcePoints = []
+      ) => {
         if (!baseline) {
           return;
         }
         const startIdx = Number.isInteger(baseline.startIndex) ? baseline.startIndex : baseline.index;
         const endIdx = Number.isInteger(baseline.endIndex) ? baseline.endIndex : null;
         const startTime =
-          Number(points?.[startIdx]?.timeOffsetMs) ??
+          Number(sourcePoints?.[startIdx]?.timeOffsetMs) ??
           Number(baseline.timeOffsetMs);
         const endTime =
-          Number(points?.[endIdx]?.timeOffsetMs) ??
-          Number(points?.[startIdx]?.timeOffsetMs);
+          Number(sourcePoints?.[endIdx]?.timeOffsetMs) ??
+          Number(sourcePoints?.[startIdx]?.timeOffsetMs);
         if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
           return;
         }
@@ -3002,8 +3088,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const xEnd = scaleX(endTime);
         const variance = Number(baseline.variance);
         const mean = Number(baseline.mean);
+
+        ctx.setLineDash([6, 4]);
+        ctx.lineWidth = 1.8;
         ctx.strokeStyle = color;
-        // vertical lines for interval
         ctx.beginPath();
         ctx.moveTo(xStart, padding.top);
         ctx.lineTo(xStart, padding.top + plotH);
@@ -3011,31 +3099,33 @@ document.addEventListener("DOMContentLoaded", () => {
         ctx.lineTo(xEnd, padding.top + plotH);
         ctx.stroke();
 
-        // variance level (on variance axis)
+        const chartXStart = padding.left;
+        const chartXEnd = padding.left + plotW;
+
         if (Number.isFinite(variance)) {
           const yVar = scaleVarianceY(variance);
           ctx.beginPath();
-          ctx.moveTo(Math.min(xStart, xEnd), yVar);
-          ctx.lineTo(Math.max(xStart, xEnd), yVar);
+          ctx.moveTo(chartXStart, yVar);
+          ctx.lineTo(chartXEnd, yVar);
           ctx.stroke();
         }
 
-        // mean pupil size (on pupil axis)
         if (Number.isFinite(mean)) {
           const yMean = scaleY(mean);
-          const chartXStart = padding.left;
-          const chartXEnd = padding.left + plotW;
           ctx.setLineDash([]);
-          ctx.strokeStyle = "#0d6efd";
+          ctx.strokeStyle = meanColor;
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.moveTo(chartXStart, yMean);
           ctx.lineTo(chartXEnd, yMean);
           ctx.stroke();
-          ctx.setLineDash([6, 4]);
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 1.8;
         }
+      };
+
+      ctx.save();
+      series.forEach(({ session, points }) => {
+        drawBaseline(session?.baselineWindow, "#ff7b00", "#0d6efd", points);
+        drawBaseline(session?.selectedBaselineWindow, "#d4af37", "#d4af37", points);
       });
       ctx.restore();
     };
@@ -3096,6 +3186,25 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillRect(legendX, legendY - 10, 12, 12);
       ctx.fillStyle = "#495057";
       ctx.fillText("Variance (smooth)", legendX + 16, legendY);
+      legendX += ctx.measureText("Variance (smooth)").width + 80;
+    }
+
+    const hasBaseline = series.some(({ session }) => Boolean(session?.baselineWindow));
+    const hasSelectedBaseline = series.some(
+      ({ session }) => Boolean(session?.selectedBaselineWindow)
+    );
+    if (hasBaseline) {
+      ctx.fillStyle = "#ff7b00";
+      ctx.fillRect(legendX, legendY - 10, 12, 12);
+      ctx.fillStyle = "#495057";
+      ctx.fillText("Baseline (auto)", legendX + 16, legendY);
+      legendX += ctx.measureText("Baseline (auto)").width + 70;
+    }
+    if (hasSelectedBaseline) {
+      ctx.fillStyle = "#d4af37";
+      ctx.fillRect(legendX, legendY - 10, 12, 12);
+      ctx.fillStyle = "#495057";
+      ctx.fillText("Baseline (выбранный)", legendX + 16, legendY);
     }
 
     drawSessionMeans();
@@ -3500,6 +3609,7 @@ document.addEventListener("DOMContentLoaded", () => {
     showInterpolatedVarianceCheckbox,
     showSmoothVarianceCheckbox,
     includeInvalidPupilCheckbox,
+    showSessionMeansCheckbox,
   ].forEach((checkbox) =>
     checkbox?.addEventListener("change", () => renderPupilChart(cachedSessions || []))
   );
@@ -3516,6 +3626,7 @@ document.addEventListener("DOMContentLoaded", () => {
   shiftXAxisLeftBtn?.addEventListener("click", () => shiftXAxis("left"));
   shiftXAxisRightBtn?.addEventListener("click", () => shiftXAxis("right"));
   gotoTimeBtn?.addEventListener("click", gotoTime);
+  selectBaselineBtn?.addEventListener("click", selectBaselineForSelected);
   baselineWindowSizeInput?.addEventListener("change", () =>
     renderPupilChart(cachedSessions || [])
   );
