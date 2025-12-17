@@ -10,6 +10,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const stimulusUploadStatus = document.getElementById("stimulusUploadStatus");
   const experimentFilter = document.getElementById("experimentFilter");
   const stimulusFilter = document.getElementById("stimulusFilter");
+  const overviewParticipantFilter = document.getElementById(
+    "overviewParticipantFilter"
+  );
+  const overviewParticipantSuggestions = document.getElementById(
+    "overviewParticipantSuggestions"
+  );
+  const overviewParticipantClear = document.getElementById(
+    "overviewParticipantClear"
+  );
   const unmatchedOnlyCheckbox = document.getElementById("unmatchedOnly");
   const sessionListElement = document.getElementById("sessionList");
   const sessionCountElement = document.getElementById("sessionCount");
@@ -110,10 +119,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const madFactorInput = document.getElementById("madFactor");
   const recomputePointsButton = document.getElementById("recomputePointsButton");
   const recomputeStatusElement = document.getElementById("recomputeStatus");
+  const ANALYSIS_SELECTION_STORAGE_KEY = "eyeTrackerAnalysisSelection";
 
   let cachedRecordings = [];
   let cachedSessions = [];
   let cachedStimuliImages = [];
+  const analysisSelectedSessions = new Set();
   const selectedPupilSessions = new Set();
   const pupilChartPadding = { left: 50, right: 20, top: 20, bottom: 40 };
   let pupilView = null;
@@ -1153,7 +1164,10 @@ document.addEventListener("DOMContentLoaded", () => {
     return null;
   };
 
-  const buildInsightsEntries = (sessions = []) => {
+  const buildInsightsEntries = (
+    sessions = [],
+    recordingsByDate = buildRecordingsMap(cachedRecordings || [])
+  ) => {
     const selectedKeys = new Set(selectedPupilSessions || []);
     const selectedSessions = (sessions || []).filter(
       (s) => s && selectedKeys.has(s.sessionKey)
@@ -1162,6 +1176,8 @@ document.addEventListener("DOMContentLoaded", () => {
       (s) => s && s.selectedBaselineWindow
     );
     return withSelectedBaseline.map((session) => {
+      const metaKey = buildRecordingKey(session.recordedAt, session.stimulusName);
+      const meta = recordingsByDate.get(metaKey);
       const baseline = session.selectedBaselineWindow || {};
       const deviation = session.selectedBaselineMeanDeviation || {};
       const startIdx = Number.isInteger(baseline.startIndex)
@@ -1174,7 +1190,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const endTime = getPointTime(session.points, endIdx);
       return {
         sessionKey: session.sessionKey || "Сессия",
-        stimulusName: session.stimulusName || "—",
+        stimulusName: session.stimulusName || meta?.stimulusName || "—",
+        participantFullName: meta?.participantFullName || meta?.participantName || "",
         mean: Number(baseline.mean),
         variance: Number(baseline.variance),
         startIdx: Number.isInteger(startIdx) ? startIdx : null,
@@ -1200,7 +1217,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!insightsContent) {
       return;
     }
-    const entries = buildInsightsEntries(sessions);
+    const recordingsByDate = buildRecordingsMap(cachedRecordings || []);
+    const entries = buildInsightsEntries(sessions, recordingsByDate);
 
     if (!entries || entries.length === 0) {
       const selectedKeys = new Set(selectedPupilSessions || []);
@@ -1237,6 +1255,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <tr>
             <td class="text-nowrap">${entry.sessionKey}</td>
             <td class="text-muted">${entry.stimulusName}</td>
+            <td class="text-muted">${entry.participantFullName || "—"}</td>
             <td>${fmt(entry.mean)}</td>
             <td>${fmt(entry.variance)}</td>
             <td>${Number.isFinite(entry.startIdx) ? entry.startIdx : "—"} — ${
@@ -1264,6 +1283,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <tr>
               <th>Сессия</th>
               <th>Стимул</th>
+              <th>Участник</th>
               <th>Mean</th>
               <th>Variance</th>
               <th>Окно (индексы)</th>
@@ -1288,7 +1308,10 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const renderPupilArea = (sessions, recordingsByDate) => {
-    const filtered = filterPupilSessions(sessions, recordingsByDate);
+    const filtered = filterPupilSessions(
+      getAnalysisSelectedSessions(sessions),
+      recordingsByDate
+    );
     renderPupilSelector(filtered, recordingsByDate);
     renderPupilChart(filtered);
     renderGazeArea(filtered);
@@ -1304,7 +1327,9 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const exportInsightsCsv = () => {
-    const entries = buildInsightsEntries(cachedSessions || []);
+    const entries = buildInsightsEntries(
+      getAnalysisSelectedSessions(cachedSessions || [])
+    );
     if (!entries || entries.length === 0) {
       setInsightsExportStatus(
         "Нет данных для выгрузки: выберите сессии и baseline.",
@@ -1315,6 +1340,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const columns = [
       { key: "sessionKey", label: "session" },
       { key: "stimulusName", label: "stimulus" },
+      { key: "participantFullName", label: "participant_full_name" },
       { key: "mean", label: "baseline_mean" },
       { key: "variance", label: "baseline_variance" },
       { key: "startIdx", label: "window_start_idx" },
@@ -1430,6 +1456,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const experiments = new Set();
     const stimuli = new Set();
+    const participants = new Set();
 
     recordings.forEach((record) =>
       experiments.add((record.experimentName || "").trim())
@@ -1437,6 +1464,12 @@ document.addEventListener("DOMContentLoaded", () => {
     recordings.forEach((record) =>
       stimuli.add((record.stimulusName || "").trim())
     );
+    recordings.forEach((record) => {
+      const full = (record.participantFullName || "").trim();
+      const short = (record.participantName || "").trim();
+      if (full) participants.add(full);
+      if (short) participants.add(short);
+    });
 
     const renderOptions = (select, values, labelAll) => {
       const currentValue = select.value || "all";
@@ -1460,12 +1493,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
     renderOptions(experimentFilter, experiments, "Все эксперименты");
     renderOptions(stimulusFilter, stimuli, "Все стимулы");
+
+    if (overviewParticipantSuggestions) {
+      const options = Array.from(participants)
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => `<option value="${value}"></option>`)
+        .join("");
+      overviewParticipantSuggestions.innerHTML = options;
+    }
   };
 
   const applyFilters = (sessions, recordingsByDate) => {
     const expFilter = experimentFilter?.value || "all";
     const stimFilter = stimulusFilter?.value || "all";
     const unmatchedOnly = unmatchedOnlyCheckbox?.checked || false;
+    const participantQuery = (overviewParticipantFilter?.value || "").trim().toLowerCase();
 
     if (experimentFilter) {
       experimentFilter.dataset.currentValue = expFilter;
@@ -1494,8 +1536,57 @@ document.addEventListener("DOMContentLoaded", () => {
       if (stimFilter !== "all" && (!meta || meta.stimulusName !== stimFilter)) {
         return false;
       }
+      if (participantQuery) {
+        const names = [
+          meta?.participantName || "",
+          meta?.participantFullName || "",
+        ]
+          .map((v) => v.toLowerCase())
+          .filter(Boolean);
+        if (!names.some((name) => name.includes(participantQuery))) {
+          return false;
+        }
+      }
       return true;
     });
+  };
+
+  const getAnalysisSelectedSessions = (sessions = []) =>
+    analysisSelectedSessions && analysisSelectedSessions.size > 0
+      ? (sessions || []).filter((session) =>
+          analysisSelectedSessions.has(session.sessionKey)
+        )
+      : [];
+
+  const persistAnalysisSelection = () => {
+    try {
+      const keys = Array.from(analysisSelectedSessions || []);
+      localStorage.setItem(ANALYSIS_SELECTION_STORAGE_KEY, JSON.stringify(keys));
+    } catch (err) {
+      console.warn("Не удалось сохранить выбор для анализа", err);
+    }
+  };
+
+  const loadAnalysisSelection = (sessions = []) => {
+    analysisSelectedSessions.clear();
+    try {
+      const raw = localStorage.getItem(ANALYSIS_SELECTION_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const saved = JSON.parse(raw);
+      if (!Array.isArray(saved)) {
+        return;
+      }
+      const sessionKeys = new Set((sessions || []).map((s) => s.sessionKey));
+      saved.forEach((key) => {
+        if (sessionKeys.has(key)) {
+          analysisSelectedSessions.add(key);
+        }
+      });
+    } catch (err) {
+      console.warn("Не удалось загрузить сохранённый выбор анализа", err);
+    }
   };
 
   const renderWithFilters = () => {
@@ -1524,8 +1615,26 @@ document.addEventListener("DOMContentLoaded", () => {
     rendererModule.renderSessions(
       sessionListElement,
       filteredSessions,
-      recordingsByDate
+      recordingsByDate,
+      { selectedKeys: analysisSelectedSessions }
     );
+
+    sessionListElement
+      .querySelectorAll(".analysis-toggle")
+      .forEach((checkbox) =>
+        checkbox.addEventListener("change", (event) => {
+          const key = event.target.dataset.sessionKey;
+          if (!key) return;
+          if (event.target.checked) {
+            analysisSelectedSessions.add(key);
+          } else {
+            analysisSelectedSessions.delete(key);
+            selectedPupilSessions.delete(key);
+          }
+          persistAnalysisSelection();
+          renderPupilArea(cachedSessions || [], recordingsByDate);
+        })
+      );
 
     renderPupilArea(cachedSessions || [], recordingsByDate);
   };
@@ -1547,6 +1656,7 @@ document.addEventListener("DOMContentLoaded", () => {
           : [];
       cachedRecordings = recordings;
       cachedSessions = sessions;
+      loadAnalysisSelection(sessions); // восстановить выбор анализа между перезагрузками
       cachedStimuliImages = stimuliImages || [];
       stimulusImageCache.clear();
 
@@ -1717,7 +1827,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const shiftSelectedSession = (direction) => {
     const recordingsByDate = buildRecordingsMap(cachedRecordings || []);
-    const filtered = filterPupilSessions(cachedSessions || [], recordingsByDate);
+    const filtered = filterPupilSessions(
+      getAnalysisSelectedSessions(cachedSessions || []),
+      recordingsByDate
+    );
     if (!filtered.length) {
       return;
     }
@@ -3582,7 +3695,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const selectAllPupilSessions = () => {
     const recordingsByDate = buildRecordingsMap();
-    filterPupilSessions(cachedSessions || [], recordingsByDate).forEach(
+    filterPupilSessions(
+      getAnalysisSelectedSessions(cachedSessions || []),
+      recordingsByDate
+    ).forEach(
       (session) => selectedPupilSessions.add(session.sessionKey)
     );
     renderPupilArea(cachedSessions || [], recordingsByDate);
@@ -3614,6 +3730,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (typeof window.eyeTrackerDB.clearStimulusImages === "function") {
         await window.eyeTrackerDB.clearStimulusImages();
       }
+      localStorage.removeItem(ANALYSIS_SELECTION_STORAGE_KEY);
       cachedSessions = [];
       cachedRecordings = [];
       cachedStimuliImages = [];
@@ -3815,6 +3932,14 @@ document.addEventListener("DOMContentLoaded", () => {
   experimentFilter?.addEventListener("change", () => renderWithFilters());
   stimulusFilter?.addEventListener("change", () => renderWithFilters());
   unmatchedOnlyCheckbox?.addEventListener("change", () => renderWithFilters());
+  overviewParticipantFilter?.addEventListener("input", () => renderWithFilters());
+  overviewParticipantClear?.addEventListener("click", () => {
+    if (overviewParticipantFilter) {
+      overviewParticipantFilter.value = "";
+      overviewParticipantFilter.focus();
+    }
+    renderWithFilters();
+  });
   pupilChartCanvas?.addEventListener("wheel", (e) => e.preventDefault(), {
     passive: false,
   });

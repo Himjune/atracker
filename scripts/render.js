@@ -54,7 +54,12 @@ const EyeTrackerRenderer = (() => {
     return [];
   };
 
-  const renderSessions = (container, sessions, recordingsByDate = new Map()) => {
+  const renderSessions = (
+    container,
+    sessions,
+    recordingsByDate = new Map(),
+    options = {}
+  ) => {
     if (!container) {
       return;
     }
@@ -65,6 +70,7 @@ const EyeTrackerRenderer = (() => {
       return;
     }
 
+    const selectedKeys = options.selectedKeys || null;
     const rows = sessions
       .map((session) => {
         const points = getSessionPoints(session);
@@ -91,6 +97,10 @@ const EyeTrackerRenderer = (() => {
         const stimulusColor = stringToColor(stimulus);
         const source = session.sourceFile || "—";
         const rowClass = meta ? "" : "table-danger";
+        const isChecked =
+          selectedKeys && selectedKeys.size > 0
+            ? selectedKeys.has(session.sessionKey)
+            : false;
 
         const sampleRows = previewPoints
           .map((point) => {
@@ -164,6 +174,15 @@ const EyeTrackerRenderer = (() => {
 
         return `
           <tr class="${rowClass}">
+            <td class="text-center">
+              <input
+                type="checkbox"
+                class="form-check-input analysis-toggle"
+                data-session-key="${session.sessionKey}"
+                ${isChecked ? "checked" : ""}
+                aria-label="Включить в анализ"
+              />
+            </td>
             <td class="text-nowrap">${session.sessionKey || "Без названия"}</td>
             <td>${metaBadges}</td>
             <td class="text-nowrap">${pointsCount}</td>
@@ -229,6 +248,7 @@ const EyeTrackerRenderer = (() => {
         <table class="table table-hover align-middle mb-0">
           <thead>
             <tr class="table-light">
+              <th scope="col" style="width: 36px;"></th>
               <th scope="col">Серия</th>
               <th scope="col">Эксперимент / Стимул / Участник</th>
               <th scope="col">Точек</th>
