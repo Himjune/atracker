@@ -1079,7 +1079,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const participants = new Set(
       (recordings || [])
-        .map((r) => (r.participantName || "").trim())
+        .flatMap((r) => [
+          (r.participantFullName || "").trim(),
+          (r.participantName || "").trim(),
+        ])
         .filter(Boolean)
     );
     const options = Array.from(participants)
@@ -1103,8 +1106,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!participantQuery) {
         return true;
       }
-      const participant = (meta?.participantName || "").toLowerCase();
-      return participant.includes(participantQuery);
+      const names = [
+        meta?.participantName || "",
+        meta?.participantFullName || "",
+      ]
+        .map((v) => v.toLowerCase())
+        .filter(Boolean);
+      return names.some((name) => name.includes(participantQuery));
     };
 
     if (filterValue === "all") {
@@ -2824,7 +2832,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const meta = metaKey ? recordingsByDate.get(metaKey) : undefined;
         const experiment = meta?.experimentName || "—";
         const stimulus = meta?.stimulusName || session.stimulusName || "—";
-        const participant = meta?.participantName || "—";
+        const participant =
+          meta?.participantFullName || meta?.participantName || "—";
         const checked = selectedPupilSessions.has(session.sessionKey);
         const color = stringToColor(session.sessionKey);
         return `

@@ -91,6 +91,7 @@ const parseMetadataWorkbook = (arrayBuffer) => {
     .map((row) => {
       const experimentName = String(row[0] || "").trim();
       const stimulusName = String(row[1] || "").trim();
+      const participantFullName = String(row[2] || "").trim();
       const participantName = String(row[3] || "").trim();
       const recordedAtRaw = row[4];
       const recordedAt = recordedAtRaw !== undefined ? String(recordedAtRaw).trim() : "";
@@ -103,6 +104,7 @@ const parseMetadataWorkbook = (arrayBuffer) => {
         recordedAt,
         experimentName,
         stimulusName,
+        participantFullName,
         participantName,
       };
     })

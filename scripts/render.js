@@ -86,7 +86,7 @@ const EyeTrackerRenderer = (() => {
         const meta = metaKey ? recordingsByDate.get(metaKey) : undefined;
         const experiment = meta?.experimentName || "";
         const stimulus = meta?.stimulusName || "";
-        const participant = meta?.participantName || "—";
+        const participant = meta?.participantFullName || meta?.participantName || "—";
         const experimentColor = stringToColor(experiment);
         const stimulusColor = stringToColor(stimulus);
         const source = session.sourceFile || "—";
