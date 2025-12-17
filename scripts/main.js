@@ -299,8 +299,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const rightVal = Number(raw.pupilRightMm);
       const prevIdx = getValidNeighbor(rawPoints, i, -1);
       const nextIdx = getValidNeighbor(rawPoints, i, 1);
-      
-      if (i == 102) console.log(prevIdx, nextIdx, rawPoints[prevIdx], rawPoints[nextIdx], i)
 
       let leftSpeed = 0;
       if (Number.isFinite(leftVal) && Number.isFinite(t)) {
@@ -326,7 +324,6 @@ document.addEventListener("DOMContentLoaded", () => {
             ? safeSpeed(rawPoints[nextIdx]?.pupilRightMm, rawPoints[nextIdx]?.timeOffsetMs, rightVal, t)
             : 0;
         rightSpeed = Math.max(prevSpeed, nextSpeed);
-      if (i == 102) console.log(leftSpeed, rightSpeed, prevSpeed, nextSpeed)
       }
 
 
@@ -821,6 +818,38 @@ document.addEventListener("DOMContentLoaded", () => {
     (sessions || []).filter((session) =>
       selectedPupilSessions.has(session.sessionKey)
     );
+
+  const syncBaselineSearchStartWithSession = (session) => {
+    if (!baselineSearchStartInput || !session) {
+      return;
+    }
+    const idx = Number(session.playbackStartIndex);
+    if (!Number.isInteger(idx) || idx < 0) {
+      return;
+    }
+    const points = getSessionPoints(session);
+    const time = Number(points?.[idx]?.timeOffsetMs);
+    if (Number.isFinite(time)) {
+      baselineSearchStartInput.value = time;
+      if (baselineSearchLengthInput) {
+        baselineSearchLengthInput.value = (time + 0.5).toFixed(3);
+      }
+    }
+  };
+
+  const syncBaselineSearchStartWithSelection = () => {
+    if (!baselineSearchStartInput) {
+      return;
+    }
+    if (selectedPupilSessions.size !== 1) {
+      return;
+    }
+    const sessionKey = Array.from(selectedPupilSessions)[0];
+    const session = (cachedSessions || []).find((s) => s.sessionKey === sessionKey);
+    if (session) {
+      syncBaselineSearchStartWithSession(session);
+    }
+  };
 
   const getStimulusImageRecord = (stimulusName) =>
     (cachedStimuliImages || []).find(
@@ -1697,6 +1726,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     selectedPupilSessions.clear();
     selectedPupilSessions.add(keys[targetIndex]);
+    const session = filtered.find((s) => s.sessionKey === keys[targetIndex]);
+    if (session) {
+      syncBaselineSearchStartWithSession(session);
+    }
     pupilUserAdjusted = false;
     renderPupilArea(filtered, recordingsByDate);
     renderGazeArea(filtered);
@@ -2816,6 +2849,7 @@ document.addEventListener("DOMContentLoaded", () => {
           } else {
             selectedPupilSessions.delete(key);
           }
+          syncBaselineSearchStartWithSelection();
           renderPupilChart(sessions);
           renderGazeArea(sessions);
         })
