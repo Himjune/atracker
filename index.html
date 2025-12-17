@@ -702,8 +702,20 @@
             Автоматические инсайты помогут подсветить улучшения в дизайне и
             сценариях использования.
           </p>
-          <div class="placeholder-panel text-center py-5">
-            <span class="text-muted">Зона аналитики</span>
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <span class="text-muted small">Сводка по выбранным сессиям (baseline).</span>
+            <button class="btn btn-outline-secondary btn-sm" id="insightsExportBtn" type="button">
+              Скачать CSV
+            </button>
+          </div>
+          <div class="text-muted small mb-2" id="insightsExportStatus"></div>
+          <div
+            id="insightsContent"
+            class="d-flex flex-column gap-3 placeholder-panel bg-white"
+          >
+            <div class="text-muted small text-center py-4">
+              Нет данных: выберите baseline у сессий, чтобы увидеть сводку.
+            </div>
           </div>
         </div>
       </section>

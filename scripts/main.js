@@ -87,6 +87,9 @@ document.addEventListener("DOMContentLoaded", () => {
     h: document.getElementById("gazeEndZoneH"),
   };
   const gazeStimulusStatus = document.getElementById("gazeStimulusStatus");
+  const insightsContent = document.getElementById("insightsContent");
+  const insightsExportBtn = document.getElementById("insightsExportBtn");
+  const insightsExportStatus = document.getElementById("insightsExportStatus");
   const resetDbButton = document.getElementById("resetDbButton");
   const resetStatusElement = document.getElementById("resetStatus");
   const sectionNavLinks = Array.from(
@@ -615,7 +618,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return best;
   };
 
-  const preparePoints = (points = []) => {
+  const preparePoints = (points = [], session = null) => {
     const rawPoints = Array.isArray(points)
       ? points.map((pt) => normalizePointRaw(pt))
       : [];
@@ -660,6 +663,13 @@ document.addEventListener("DOMContentLoaded", () => {
       interpolated: interpolatedPoints[index] || { ...raw },
       smooth: smoothPoints[index] || interpolatedPoints[index] || { ...raw },
     }));
+    const selectedBaselineMeanDeviation = computeSelectedBaselineDeviation(
+      session,
+      combinedPoints
+    );
+    if (selectedBaselineMeanDeviation !== undefined) {
+      session.selectedBaselineMeanDeviation = selectedBaselineMeanDeviation;
+    }
     return {
       rawPoints,
       interpolatedPoints,
@@ -680,6 +690,80 @@ document.addEventListener("DOMContentLoaded", () => {
     const datePart = String(dateKey || "").trim();
     const filePart = String(sourceFile || "").trim();
     return [datePart, filePart].filter(Boolean).join(" | ");
+  };
+
+  const computeSelectedBaselineDeviation = (
+    session = {},
+    combinedPoints = []
+  ) => {
+    const deviation = {
+      baselineDiv: 0,
+      baselineDivPerc: 0,
+      baselineDivMax: -100,
+      baselineDivMaxPerc: 0,
+      baselineDivMaxTimeProp: 0,
+      baselineDivMin: 100,
+      baselineDivMinPerc: 0,
+      baselineDivMinTimeProp: 0,
+    };
+
+    const baseline = session?.selectedBaselineWindow;
+    if (!baseline || !Array.isArray(combinedPoints) || combinedPoints.length === 0) {
+      return null;
+    }
+    const mean = Number(baseline.mean);
+    if (!Number.isFinite(mean)) {
+      return null;
+    }
+    const startIdxRaw = Number.isInteger(session?.playbackStartIndex)
+      ? session?.playbackStartIndex
+      : 0;
+    const endIdxRaw = Number.isInteger(session?.playbackEndIndex)
+      ? session?.playbackEndIndex
+      : 0;
+    const maxIndex = combinedPoints.length - 1;
+
+    const startIdx = Number.isInteger(startIdxRaw)
+      ? Math.min(Math.max(0, startIdxRaw), maxIndex)
+      : 0;
+    const endIdx = Number.isInteger(endIdxRaw)
+      ? Math.min(Math.max(startIdx, endIdxRaw), maxIndex)
+      : maxIndex;
+
+    const lengthIdx = endIdx - startIdx;
+    const lengthSafe = lengthIdx > 0 ? lengthIdx : 1;
+
+    let sumDiv = 0;
+    let count = 0;
+    for (let i = startIdx; i <= endIdx; i += 1) {
+      const value = Number(combinedPoints[i]?.smooth?.pupilAvg);
+      const div = value - mean;
+      if (!Number.isFinite(value)) {
+        continue;
+      }
+      sumDiv += div;
+
+      combinedPoints[i].smooth.pupilAvgDiv = div;
+
+      if (div > deviation.baselineDivMax) {
+        deviation.baselineDivMax = div;
+        deviation.baselineDivMaxPerc = (div / mean) * 100;
+        deviation.baselineDivMaxTimeProp = (i - startIdx) / lengthSafe * 100;
+      }
+      if (div < deviation.baselineDivMin) {
+        deviation.baselineDivMin = div;
+        deviation.baselineDivMinPerc = (div / mean) * 100;
+        deviation.baselineDivMinTimeProp = (i - startIdx) / lengthSafe * 100;
+      }
+      
+      count += 1;
+    }
+    if (count === 0) {
+      return null;
+    }
+    deviation.baselineDiv = sumDiv / count;
+    deviation.baselineDivPerc = (sumDiv / mean / count) * 100;
+    return deviation;
   };
 
   const extractStimulusFromFileName = (fileName) => {
@@ -705,7 +789,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const getSessionPoints = (session) => {
     if (Array.isArray(session?.points)) {
-      const { combinedPoints, medians, baselineWindow } = preparePoints(session.points);
+      const { combinedPoints, medians, baselineWindow } = preparePoints(
+        session.points,
+        session
+      );
       if (medians) {
         session.rawDilationSpeedLeftMedian = medians.leftMedian;
         session.rawDilationSpeedRightMedian = medians.rightMedian;
@@ -915,6 +1002,14 @@ document.addEventListener("DOMContentLoaded", () => {
     recomputeStatusElement.className = `small text-${type} mt-2`;
   };
 
+  const setInsightsExportStatus = (message, type = "muted") => {
+    if (!insightsExportStatus) {
+      return;
+    }
+    insightsExportStatus.textContent = message;
+    insightsExportStatus.className = `small text-${type}`;
+  };
+
   const fileToDataUrl = (file) =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -1003,11 +1098,228 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
+  const getPointTime = (points = [], idx) => {
+    if (!Number.isInteger(idx) || idx < 0) return null;
+    const pt = points[idx];
+    const candidates = [
+      pt?.timeOffsetMs,
+      pt?.raw?.timeOffsetMs,
+      pt?.interpolated?.timeOffsetMs,
+      pt?.smooth?.timeOffsetMs,
+    ];
+    for (let i = 0; i < candidates.length; i += 1) {
+      const num = Number(candidates[i]);
+      if (Number.isFinite(num)) {
+        return num;
+      }
+    }
+    return null;
+  };
+
+  const buildInsightsEntries = (sessions = []) => {
+    const selectedKeys = new Set(selectedPupilSessions || []);
+    const selectedSessions = (sessions || []).filter(
+      (s) => s && selectedKeys.has(s.sessionKey)
+    );
+    const withSelectedBaseline = selectedSessions.filter(
+      (s) => s && s.selectedBaselineWindow
+    );
+    return withSelectedBaseline.map((session) => {
+      const baseline = session.selectedBaselineWindow || {};
+      const deviation = session.selectedBaselineMeanDeviation || {};
+      const startIdx = Number.isInteger(baseline.startIndex)
+        ? baseline.startIndex
+        : baseline.index;
+      const endIdx = Number.isInteger(baseline.endIndex)
+        ? baseline.endIndex
+        : startIdx;
+      const startTime = getPointTime(session.points, startIdx);
+      const endTime = getPointTime(session.points, endIdx);
+      return {
+        sessionKey: session.sessionKey || "Сессия",
+        stimulusName: session.stimulusName || "—",
+        mean: Number(baseline.mean),
+        variance: Number(baseline.variance),
+        startIdx: Number.isInteger(startIdx) ? startIdx : null,
+        endIdx: Number.isInteger(endIdx) ? endIdx : null,
+        startTime,
+        endTime,
+        windowSizeSeconds: Number(baseline.windowSizeSeconds),
+        searchLengthSeconds: Number(baseline.searchLengthSeconds),
+        searchStartSeconds: Number(baseline.searchStartSeconds),
+        baselineDiv: deviation.baselineDiv,
+        baselineDivPerc: deviation.baselineDivPerc,
+        baselineDivMax: deviation.baselineDivMax,
+        baselineDivMaxPerc: deviation.baselineDivMaxPerc,
+        baselineDivMaxTimeProp: deviation.baselineDivMaxTimeProp,
+        baselineDivMin: deviation.baselineDivMin,
+        baselineDivMinPerc: deviation.baselineDivMinPerc,
+        baselineDivMinTimeProp: deviation.baselineDivMinTimeProp,
+      };
+    });
+  };
+
+  const renderInsights = (sessions = []) => {
+    if (!insightsContent) {
+      return;
+    }
+    const entries = buildInsightsEntries(sessions);
+
+    if (!entries || entries.length === 0) {
+      const selectedKeys = new Set(selectedPupilSessions || []);
+      if (selectedKeys.size === 0) {
+        insightsContent.innerHTML =
+          '<div class="text-muted small text-center py-4">Выберите сессии в секции 3, чтобы увидеть аналитику по выбранному baseline.</div>';
+      } else {
+        insightsContent.innerHTML =
+          '<div class="text-muted small text-center py-4">Нет данных: выберите baseline у сессий, чтобы увидеть сводку.</div>';
+      }
+      return;
+    }
+
+    const fmt = (value, digits = 3) =>
+      Number.isFinite(value) ? value.toFixed(digits) : "—";
+
+    const rows = entries
+      .map((entry) => {
+        const searchParams = [
+          Number.isFinite(entry.windowSizeSeconds)
+            ? `Окно: ${fmt(entry.windowSizeSeconds, 2)} с`
+            : null,
+          Number.isFinite(entry.searchLengthSeconds)
+            ? `Поиск min: ${fmt(entry.searchLengthSeconds, 2)} с`
+            : null,
+          Number.isFinite(entry.searchStartSeconds)
+            ? `Старт: ${fmt(entry.searchStartSeconds, 2)} с`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+
+        return `
+          <tr>
+            <td class="text-nowrap">${entry.sessionKey}</td>
+            <td class="text-muted">${entry.stimulusName}</td>
+            <td>${fmt(entry.mean)}</td>
+            <td>${fmt(entry.variance)}</td>
+            <td>${Number.isFinite(entry.startIdx) ? entry.startIdx : "—"} — ${
+          Number.isFinite(entry.endIdx) ? entry.endIdx : "—"
+        }</td>
+            <td>${fmt(entry.startTime)} — ${fmt(entry.endTime)}</td>
+            <td>${searchParams || "—"}</td>
+            <td>${fmt(entry.baselineDiv)}</td>
+            <td>${fmt(entry.baselineDivPerc)}</td>
+            <td>${fmt(entry.baselineDivMax)}</td>
+            <td>${fmt(entry.baselineDivMaxPerc)}</td>
+            <td>${fmt(entry.baselineDivMaxTimeProp)}</td>
+            <td>${fmt(entry.baselineDivMin)}</td>
+            <td>${fmt(entry.baselineDivMinPerc)}</td>
+            <td>${fmt(entry.baselineDivMinTimeProp)}</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    insightsContent.innerHTML = `
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Сессия</th>
+              <th>Стимул</th>
+              <th>Mean</th>
+              <th>Variance</th>
+              <th>Окно (индексы)</th>
+              <th>t окна, c</th>
+              <th>Параметры поиска</th>
+              <th>Отклонение</th>
+              <th>Отклонение, %</th>
+              <th>Макс откл.</th>
+              <th>Макс откл., %</th>
+              <th>Время макс, доля</th>
+              <th>Мин откл.</th>
+              <th>Мин откл., %</th>
+              <th>Время мин, доля</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  };
+
   const renderPupilArea = (sessions, recordingsByDate) => {
     const filtered = filterPupilSessions(sessions, recordingsByDate);
     renderPupilSelector(filtered, recordingsByDate);
     renderPupilChart(filtered);
     renderGazeArea(filtered);
+    renderInsights(cachedSessions || []);
+  };
+
+  const csvEscape = (value) => {
+    const str = value === null || value === undefined ? "" : String(value);
+    if (/[\";\n]/.test(str)) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  const exportInsightsCsv = () => {
+    const entries = buildInsightsEntries(cachedSessions || []);
+    if (!entries || entries.length === 0) {
+      setInsightsExportStatus(
+        "Нет данных для выгрузки: выберите сессии и baseline.",
+        "warning"
+      );
+      return;
+    }
+    const columns = [
+      { key: "sessionKey", label: "session" },
+      { key: "stimulusName", label: "stimulus" },
+      { key: "mean", label: "baseline_mean" },
+      { key: "variance", label: "baseline_variance" },
+      { key: "startIdx", label: "window_start_idx" },
+      { key: "endIdx", label: "window_end_idx" },
+      { key: "startTime", label: "window_start_time_s" },
+      { key: "endTime", label: "window_end_time_s" },
+      { key: "windowSizeSeconds", label: "window_size_s" },
+      { key: "searchLengthSeconds", label: "search_length_s" },
+      { key: "searchStartSeconds", label: "search_start_s" },
+      { key: "baselineDiv", label: "avg_delta" },
+      { key: "baselineDivPerc", label: "avg_delta_pct" },
+      { key: "baselineDivMax", label: "max_delta" },
+      { key: "baselineDivMaxPerc", label: "max_delta_pct" },
+      { key: "baselineDivMaxTimeProp", label: "max_delta_pos" },
+      { key: "baselineDivMin", label: "min_delta" },
+      { key: "baselineDivMinPerc", label: "min_delta_pct" },
+      { key: "baselineDivMinTimeProp", label: "min_delta_pos" },
+    ];
+
+    const header = columns.map((c) => csvEscape(c.label)).join(",");
+    const rows = entries.map((entry) =>
+      columns
+        .map((c) => {
+          const value = entry[c.key];
+          if (Number.isFinite(value)) {
+            return csvEscape(value);
+          }
+          return csvEscape(value ?? "");
+        })
+        .join(",")
+    );
+    const csvContent = [header, ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "baseline_insights.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setInsightsExportStatus(`Скачан CSV на ${entries.length} строк.`, "success");
   };
 
   const setActiveSectionNav = (targetId) => {
@@ -1207,6 +1519,7 @@ document.addEventListener("DOMContentLoaded", () => {
       populatePupilStimulusFilter(recordings);
       populatePupilParticipantSuggestions(recordings);
       renderPupilArea(sessions, recordingsByDate);
+      renderInsights(sessions);
     } catch (error) {
       console.error(error);
       if (
@@ -1556,16 +1869,21 @@ document.addEventListener("DOMContentLoaded", () => {
       const session =
         (cachedSessions || []).find((s) => s.sessionKey === key) || null;
       if (!session) return;
-      getSessionPoints(session); // обновляем baseline с текущими параметрами
+      const points = getSessionPoints(session); // обновляем baseline с текущими параметрами
       const baseline = session.baselineWindow;
       if (!baseline) {
         missingBaseline += 1;
         return;
       }
       const selectedBaselineWindow = { ...baseline };
+      const selectedBaselineMeanDeviation = computeSelectedBaselineDeviation(
+        { ...session, selectedBaselineWindow },
+        points
+      );
       updatedSessions.push({
         ...session,
         selectedBaselineWindow,
+        selectedBaselineMeanDeviation,
       });
     });
 
@@ -1596,6 +1914,7 @@ document.addEventListener("DOMContentLoaded", () => {
         "success"
       );
       renderPupilChart(cachedSessions || []);
+      renderInsights(cachedSessions || []);
     } catch (error) {
       console.error(error);
       setBaselineSelectStatus("Не удалось сохранить baseline в БД.", "danger");
@@ -1670,7 +1989,7 @@ document.addEventListener("DOMContentLoaded", () => {
           smoothPoints,
           medians,
           baselineWindow,
-        } = preparePoints(session.points);
+        } = preparePoints(session.points, session);
         const points = normalizedRawPoints.map((raw, index) => ({
           raw,
           interpolated: interpolatedPoints[index],
@@ -1692,6 +2011,10 @@ document.addEventListener("DOMContentLoaded", () => {
           medians?.rightMadThreshold ??
           session.rawDilationSpeedRightMADThreshold ??
           null;
+        const selectedBaselineMeanDeviation = computeSelectedBaselineDeviation(
+          session,
+          points
+        );
         return {
           ...session,
           points,
@@ -1704,6 +2027,7 @@ document.addEventListener("DOMContentLoaded", () => {
           rawDilationSpeedLeftMADThreshold,
           rawDilationSpeedRightMADThreshold,
           baselineWindow: baselineWindow || null,
+          selectedBaselineMeanDeviation,
         };
       });
 
@@ -1765,7 +2089,7 @@ document.addEventListener("DOMContentLoaded", () => {
               smoothPoints,
               medians,
               baselineWindow,
-            } = preparePoints(session.points);
+            } = preparePoints(session.points, session);
             const mappedPoints = normalizedRawPoints.map((raw, index) => ({
               raw,
               interpolated: interpolatedPoints[index],
@@ -3627,6 +3951,7 @@ document.addEventListener("DOMContentLoaded", () => {
   shiftXAxisRightBtn?.addEventListener("click", () => shiftXAxis("right"));
   gotoTimeBtn?.addEventListener("click", gotoTime);
   selectBaselineBtn?.addEventListener("click", selectBaselineForSelected);
+  insightsExportBtn?.addEventListener("click", exportInsightsCsv);
   baselineWindowSizeInput?.addEventListener("change", () =>
     renderPupilChart(cachedSessions || [])
   );
