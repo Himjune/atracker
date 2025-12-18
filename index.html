@@ -228,6 +228,18 @@
                 role="status"
               ></div>
             </div>
+            <div class="col-md-12 d-flex flex-wrap gap-2 align-items-center">
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="exportDbButton">
+                Выгрузить БД (JSON)
+              </button>
+              <div class="input-group input-group-sm" style="max-width: 360px;">
+                <input type="file" class="form-control" id="importDbFile" accept=".json,application/json" />
+                <button class="btn btn-outline-primary" type="button" id="importDbButton">
+                  Загрузить БД
+                </button>
+              </div>
+              <div id="dbTransferStatus" class="small text-muted"></div>
+            </div>
           </div>
         </div>
       </section>

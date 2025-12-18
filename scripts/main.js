@@ -101,6 +101,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const insightsExportStatus = document.getElementById("insightsExportStatus");
   const resetDbButton = document.getElementById("resetDbButton");
   const resetStatusElement = document.getElementById("resetStatus");
+  const exportDbButton = document.getElementById("exportDbButton");
+  const importDbButton = document.getElementById("importDbButton");
+  const importDbFileInput = document.getElementById("importDbFile");
+  const dbTransferStatus = document.getElementById("dbTransferStatus");
   const sectionNavLinks = Array.from(
     document.querySelectorAll("[data-scroll-target]")
   );
@@ -1050,6 +1054,14 @@ document.addEventListener("DOMContentLoaded", () => {
     insightsExportStatus.className = `small text-${type}`;
   };
 
+  const setDbTransferStatus = (message, type = "muted") => {
+    if (!dbTransferStatus) {
+      return;
+    }
+    dbTransferStatus.textContent = message;
+    dbTransferStatus.className = `small text-${type}`;
+  };
+
   const fileToDataUrl = (file) =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -1383,6 +1395,121 @@ document.addEventListener("DOMContentLoaded", () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     setInsightsExportStatus(`Скачан CSV на ${entries.length} строк.`, "success");
+  };
+
+  const exportDatabase = async () => {
+    if (!window.eyeTrackerDB) {
+      setDbTransferStatus("Хранилище недоступно.", "danger");
+      return;
+    }
+    setDbTransferStatus("Готовим выгрузку...", "muted");
+    try {
+      const [sessions, recordings, stimuli] = await Promise.all([
+        window.eyeTrackerDB.getSessions(),
+        window.eyeTrackerDB.getRecordings(),
+        typeof window.eyeTrackerDB.getStimulusImages === "function"
+          ? window.eyeTrackerDB.getStimulusImages()
+          : [],
+      ]);
+
+      // Формируем JSON по кускам, чтобы избежать RangeError при больших массивах
+      const parts = [];
+      parts.push('{"sessions":[');
+      (sessions || []).forEach((session, idx) => {
+        if (idx > 0) parts.push(",");
+        parts.push(JSON.stringify(session));
+      });
+      parts.push('],"recordings":[');
+      (recordings || []).forEach((record, idx) => {
+        if (idx > 0) parts.push(",");
+        parts.push(JSON.stringify(record));
+      });
+      parts.push('],"stimuli":[');
+      (stimuli || []).forEach((stim, idx) => {
+        if (idx > 0) parts.push(",");
+        parts.push(JSON.stringify(stim));
+      });
+      parts.push("}");
+
+      const blob = new Blob(parts, { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "eye-tracker-db.json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setDbTransferStatus(
+        `Выгружено: сессий ${sessions?.length || 0}, записей ${recordings?.length || 0}, стимулов ${stimuli?.length || 0}.`,
+        "success"
+      );
+    } catch (error) {
+      console.error(error);
+      setDbTransferStatus("Ошибка выгрузки БД.", "danger");
+    }
+  };
+
+  const importDatabase = () => {
+    if (!window.eyeTrackerDB) {
+      setDbTransferStatus("Хранилище недоступно.", "danger");
+      return;
+    }
+    const file = importDbFileInput?.files?.[0];
+    if (!file) {
+      setDbTransferStatus("Выберите JSON-файл с базой.", "warning");
+      return;
+    }
+    const confirmed = window.confirm(
+      "Импорт перезапишет текущие данные (сессии, метаданные, стимулы). Продолжить?"
+    );
+    if (!confirmed) {
+      return;
+    }
+    setDbTransferStatus("Импортируем базу...", "muted");
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result;
+        const data = JSON.parse(text);
+        if (!data || typeof data !== "object") {
+          throw new Error("Неверный формат файла.");
+        }
+        const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+        const recordings = Array.isArray(data.recordings) ? data.recordings : [];
+        const stimuli = Array.isArray(data.stimuli) ? data.stimuli : [];
+
+        await window.eyeTrackerDB.clearSessions();
+        if (typeof window.eyeTrackerDB.clearRecordings === "function") {
+          await window.eyeTrackerDB.clearRecordings();
+        }
+        if (typeof window.eyeTrackerDB.clearStimulusImages === "function") {
+          await window.eyeTrackerDB.clearStimulusImages();
+        }
+        localStorage.removeItem(ANALYSIS_SELECTION_STORAGE_KEY);
+
+        if (stimuli.length && typeof window.eyeTrackerDB.addStimulusImage === "function") {
+          await Promise.all(stimuli.map((item) => window.eyeTrackerDB.addStimulusImage(item)));
+        }
+        if (recordings.length) {
+          await window.eyeTrackerDB.addRecordings(recordings);
+        }
+        if (sessions.length) {
+          await Promise.all(sessions.map((s) => window.eyeTrackerDB.addSession(s)));
+        }
+
+        await renderSessionsFromDB();
+        setDbTransferStatus(
+          `Импорт завершён: сессий ${sessions.length}, записей ${recordings.length}, стимулов ${stimuli.length}.`,
+          "success"
+        );
+      } catch (error) {
+        console.error(error);
+        setDbTransferStatus("Ошибка импорта БД. Проверьте файл.", "danger");
+      }
+    };
+    reader.onerror = () => setDbTransferStatus("Не удалось прочитать файл.", "danger");
+    reader.readAsText(file);
   };
 
   const setActiveSectionNav = (targetId) => {
@@ -4120,6 +4247,8 @@ document.addEventListener("DOMContentLoaded", () => {
   gotoTimeBtn?.addEventListener("click", gotoTime);
   selectBaselineBtn?.addEventListener("click", selectBaselineForSelected);
   insightsExportBtn?.addEventListener("click", exportInsightsCsv);
+  exportDbButton?.addEventListener("click", exportDatabase);
+  importDbButton?.addEventListener("click", importDatabase);
   baselineWindowSizeInput?.addEventListener("change", () =>
     renderPupilChart(cachedSessions || [])
   );
