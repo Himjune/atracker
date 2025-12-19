@@ -3419,12 +3419,33 @@ document.addEventListener("DOMContentLoaded", () => {
       ...(showSmoothVariance ? varianceSmoothPoints.map((p) => p.y) : []),
     ];
 
-    const minX = Math.min(...xValues, 0);
-    const maxX = Math.max(...xValues);
-    const minY =
-      pupilYValues.length > 0 ? Math.min(...pupilYValues) : 0;
-    const maxY =
-      pupilYValues.length > 0 ? Math.max(...pupilYValues) : 1;
+    const getMinMax = (values = [], fallbackMin, fallbackMax) => {
+      let min = fallbackMin;
+      let max = fallbackMax;
+      let has = false;
+      for (const value of values) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) {
+          continue;
+        }
+        if (!has) {
+          min = num;
+          max = num;
+          has = true;
+        } else {
+          if (num < min) min = num;
+          if (num > max) max = num;
+        }
+      }
+      return has ? { min, max } : { min: fallbackMin, max: fallbackMax };
+    };
+
+    const xMinMax = getMinMax(xValues, 0, 0);
+    const minX = Math.min(xMinMax.min, 0);
+    const maxX = xMinMax.max;
+    const pupilMinMax = getMinMax(pupilYValues, 0, 1);
+    const minY = pupilMinMax.min;
+    const maxY = pupilMinMax.max;
 
     pupilDataBounds = { xMin: minX, xMax: maxX, yMin: minY, yMax: maxY };
     pupilBaseView = expandBounds(pupilDataBounds);
@@ -3442,11 +3463,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const rangeX = safeRange(pupilView.xMax - pupilView.xMin, 1);
     const rangeY = safeRange(pupilView.yMax - pupilView.yMin, 1);
-    const varianceFinite = varianceYValues.filter((v) => Number.isFinite(v));
-    const varianceMin =
-      varianceFinite.length > 0 ? Math.min(...varianceFinite) : 0;
-    const varianceMax =
-      varianceFinite.length > 0 ? Math.max(...varianceFinite) : 1;
+    const varianceMinMax = getMinMax(varianceYValues, 0, 1);
+    const varianceMin = varianceMinMax.min;
+    const varianceMax = varianceMinMax.max;
     const varianceRange = safeRange(varianceMax - varianceMin, 1);
     const variancePadding = varianceRange * 0.1;
     const varianceBase = {
