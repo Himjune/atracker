@@ -42,6 +42,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const baselineSearchLengthInput = document.getElementById("baselineSearchLength");
   const baselineSearchStartInput = document.getElementById("baselineSearchStart");
   const selectBaselineBtn = document.getElementById("selectBaselineButton");
+  const recomputeSelectedBaselineBtn = document.getElementById(
+    "recomputeSelectedBaselineButton"
+  );
   const baselineSelectStatus = document.getElementById("baselineSelectStatus");
   const zoomPupilYInBtn = document.getElementById("zoomPupilYIn");
   const zoomPupilYOutBtn = document.getElementById("zoomPupilYOut");
@@ -63,6 +66,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const showRightPupilCheckbox = document.getElementById("showRightPupil");
   const showAvgPupilCheckbox = document.getElementById("showAvgPupil");
   const showSessionMeansCheckbox = document.getElementById("showSessionMeans");
+  const showBaselineExtremaCheckbox = document.getElementById("showBaselineExtrema");
   const includeInvalidPupilCheckbox = document.getElementById("includeInvalidPupil");
   const gazeCanvas = document.getElementById("gazeCanvas");
   const gazeColorMode = document.getElementById("gazeColorMode");
@@ -763,7 +767,7 @@ document.addEventListener("DOMContentLoaded", () => {
         deviation.baselineDivMaxPerc = (div / mean) * 100;
         deviation.baselineDivMaxTimeProp = (i - startIdx) / lengthSafe * 100;
       }
-      if (div < deviation.baselineDivMin) {
+      if (div < deviation.baselineDivMin && i > startIdx + 100) {
         deviation.baselineDivMin = div;
         deviation.baselineDivMinPerc = (div / mean) * 100;
         deviation.baselineDivMinTimeProp = (i - startIdx) / lengthSafe * 100;
@@ -2263,6 +2267,75 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       console.error(error);
       setBaselineSelectStatus("Не удалось сохранить baseline в БД.", "danger");
+    }
+  };
+
+  const recomputeSelectedBaselineForSelected = async () => {
+    if (!window.eyeTrackerDB) {
+      setBaselineSelectStatus("Хранилище недоступно.", "danger");
+      return;
+    }
+    const selected = Array.from(selectedPupilSessions || []);
+    if (selected.length === 0) {
+      setBaselineSelectStatus("Сначала выберите хотя бы одну сессию.", "warning");
+      return;
+    }
+
+    const updatedSessions = [];
+    let missingBaseline = 0;
+
+    selected.forEach((key) => {
+      const session =
+        (cachedSessions || []).find((s) => s.sessionKey === key) || null;
+      if (!session) return;
+      if (!session.selectedBaselineWindow) {
+        missingBaseline += 1;
+        return;
+      }
+      const points = getSessionPoints(session);
+      const selectedBaselineWindow = { ...session.selectedBaselineWindow };
+      const selectedBaselineMeanDeviation = computeSelectedBaselineDeviation(
+        { ...session, selectedBaselineWindow },
+        points
+      );
+      updatedSessions.push({
+        ...session,
+        selectedBaselineWindow,
+        selectedBaselineMeanDeviation,
+      });
+    });
+
+    if (updatedSessions.length === 0) {
+      setBaselineSelectStatus(
+        missingBaseline > 0
+          ? "Нет выбранного baseline для пересчета."
+          : "Нечего пересчитывать.",
+        "warning"
+      );
+      return;
+    }
+
+    try {
+      await Promise.all(
+        updatedSessions.map((session) => window.eyeTrackerDB.addSession(session))
+      );
+      cachedSessions = (cachedSessions || []).map((session) => {
+        const found = updatedSessions.find((s) => s.sessionKey === session.sessionKey);
+        return found ? found : session;
+      });
+      const suffix =
+        missingBaseline > 0
+          ? ` (пропущено без baseline: ${missingBaseline})`
+          : "";
+      setBaselineSelectStatus(
+        `Baseline пересчитан для ${updatedSessions.length} сессий${suffix}.`,
+        "success"
+      );
+      renderPupilChart(cachedSessions || []);
+      renderInsights(cachedSessions || []);
+    } catch (error) {
+      console.error(error);
+      setBaselineSelectStatus("Не удалось пересчитать baseline в БД.", "danger");
     }
   };
 
@@ -3820,6 +3893,85 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.restore();
     };
 
+    const drawBaselineExtremaOverlay = () => {
+      if (showBaselineExtremaCheckbox?.checked === false) {
+        return;
+      }
+      const getRangeIndices = (session, points) => {
+        const maxIndex = points.length - 1;
+        const startIdxRaw = Number.isInteger(session?.playbackStartIndex)
+          ? session.playbackStartIndex
+          : 0;
+        const endIdxRaw = Number.isInteger(session?.playbackEndIndex)
+          ? session.playbackEndIndex
+          : 0;
+        const startIdx = Number.isInteger(startIdxRaw)
+          ? Math.min(Math.max(0, startIdxRaw), maxIndex)
+          : 0;
+        const endIdx = Number.isInteger(endIdxRaw)
+          ? Math.min(Math.max(startIdx, endIdxRaw), maxIndex)
+          : maxIndex;
+        return { startIdx, endIdx };
+      };
+      const drawCrosshair = (time, value, color) => {
+        if (!Number.isFinite(time) || !Number.isFinite(value)) {
+          return;
+        }
+        const x = scaleX(time);
+        const y = scaleY(value);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.4;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top);
+        ctx.lineTo(x, padding.top + plotH);
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(padding.left + plotW, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      };
+
+      ctx.save();
+      series.forEach(({ session, points }) => {
+        const baseline = session?.selectedBaselineWindow;
+        if (!baseline || !Array.isArray(points) || points.length === 0) {
+          return;
+        }
+        const mean = Number(baseline.mean);
+        if (!Number.isFinite(mean)) {
+          return;
+        }
+        const { startIdx, endIdx } = getRangeIndices(session, points);
+        let maxPoint = null;
+        let minPoint = null;
+        for (let i = startIdx; i <= endIdx; i += 1) {
+          const time = Number(points[i]?.timeOffsetMs);
+          const value = Number(points[i]?.smooth?.pupilAvg);
+          if (!Number.isFinite(time) || !Number.isFinite(value)) {
+            continue;
+          }
+          const div = value - mean;
+          if (!maxPoint || div > maxPoint.div) {
+            maxPoint = { time, value, div };
+          }
+          if (!minPoint || div < minPoint.div) {
+            minPoint = { time, value, div };
+          }
+        }
+        if (maxPoint) {
+          drawCrosshair(maxPoint.time, maxPoint.value, "#dc3545");
+        }
+        if (minPoint) {
+          drawCrosshair(minPoint.time, minPoint.value, "#0d6efd");
+        }
+      });
+      ctx.restore();
+    };
+
     seriesConfig.forEach((config) => {
       const points = pointsByType[config.key] || [];
       const validInRange = points.filter((p) => !p.isInvalid && p.inRange !== false);
@@ -3899,6 +4051,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     drawSessionMeans();
     drawBaselineOverlay();
+    drawBaselineExtremaOverlay();
 
     drawAxesOverlay();
   };
@@ -4312,6 +4465,7 @@ document.addEventListener("DOMContentLoaded", () => {
     showSmoothVarianceCheckbox,
     includeInvalidPupilCheckbox,
     showSessionMeansCheckbox,
+    showBaselineExtremaCheckbox,
   ].forEach((checkbox) =>
     checkbox?.addEventListener("change", () => renderPupilChart(cachedSessions || []))
   );
@@ -4329,6 +4483,10 @@ document.addEventListener("DOMContentLoaded", () => {
   shiftXAxisRightBtn?.addEventListener("click", () => shiftXAxis("right"));
   gotoTimeBtn?.addEventListener("click", gotoTime);
   selectBaselineBtn?.addEventListener("click", selectBaselineForSelected);
+  recomputeSelectedBaselineBtn?.addEventListener(
+    "click",
+    recomputeSelectedBaselineForSelected
+  );
   insightsExportBtn?.addEventListener("click", exportInsightsCsv);
   insightsExportXlsxBtn?.addEventListener("click", exportInsightsXlsx);
   exportDbButton?.addEventListener("click", exportDatabase);
