@@ -738,9 +738,18 @@
           </p>
           <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
             <span class="text-muted small">Сводка по выбранным сессиям (baseline).</span>
-            <button class="btn btn-outline-secondary btn-sm" id="insightsExportBtn" type="button">
-              Скачать CSV
-            </button>
+            <div class="d-flex flex-wrap gap-2">
+              <button class="btn btn-outline-secondary btn-sm" id="insightsExportBtn" type="button">
+                Скачать CSV
+              </button>
+              <button
+                class="btn btn-outline-secondary btn-sm"
+                id="insightsExportXlsxBtn"
+                type="button"
+              >
+                Скачать XLSX
+              </button>
+            </div>
           </div>
           <div class="text-muted small mb-2" id="insightsExportStatus"></div>
           <div

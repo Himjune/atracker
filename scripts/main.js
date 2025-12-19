@@ -98,6 +98,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const gazeStimulusStatus = document.getElementById("gazeStimulusStatus");
   const insightsContent = document.getElementById("insightsContent");
   const insightsExportBtn = document.getElementById("insightsExportBtn");
+  const insightsExportXlsxBtn = document.getElementById("insightsExportXlsxBtn");
   const insightsExportStatus = document.getElementById("insightsExportStatus");
   const resetDbButton = document.getElementById("resetDbButton");
   const resetStatusElement = document.getElementById("resetStatus");
@@ -1200,6 +1201,14 @@ document.addEventListener("DOMContentLoaded", () => {
         : startIdx;
       const startTime = getPointTime(session.points, startIdx);
       const endTime = getPointTime(session.points, endIdx);
+      const playbackStartIdx = Number.isInteger(session.playbackStartIndex)
+        ? session.playbackStartIndex
+        : null;
+      const playbackEndIdx = Number.isInteger(session.playbackEndIndex)
+        ? session.playbackEndIndex
+        : null;
+      const playbackStartTime = getPointTime(session.points, playbackStartIdx);
+      const playbackEndTime = getPointTime(session.points, playbackEndIdx);
       return {
         sessionKey: session.sessionKey || "Сессия",
         stimulusName: session.stimulusName || meta?.stimulusName || "—",
@@ -1210,6 +1219,10 @@ document.addEventListener("DOMContentLoaded", () => {
         endIdx: Number.isInteger(endIdx) ? endIdx : null,
         startTime,
         endTime,
+        playbackStartIdx,
+        playbackEndIdx,
+        playbackStartTime,
+        playbackEndTime,
         windowSizeSeconds: Number(baseline.windowSizeSeconds),
         searchLengthSeconds: Number(baseline.searchLengthSeconds),
         searchStartSeconds: Number(baseline.searchStartSeconds),
@@ -1274,6 +1287,10 @@ document.addEventListener("DOMContentLoaded", () => {
           Number.isFinite(entry.endIdx) ? entry.endIdx : "—"
         }</td>
             <td>${fmt(entry.startTime)} — ${fmt(entry.endTime)}</td>
+            <td>${Number.isFinite(entry.playbackStartIdx) ? entry.playbackStartIdx : "—"}</td>
+            <td>${Number.isFinite(entry.playbackEndIdx) ? entry.playbackEndIdx : "—"}</td>
+            <td>${fmt(entry.playbackStartTime)}</td>
+            <td>${fmt(entry.playbackEndTime)}</td>
             <td>${searchParams || "—"}</td>
             <td>${fmt(entry.baselineDiv)}</td>
             <td>${fmt(entry.baselineDivPerc)}</td>
@@ -1300,6 +1317,10 @@ document.addEventListener("DOMContentLoaded", () => {
               <th>Variance</th>
               <th>Окно (индексы)</th>
               <th>t окна, c</th>
+              <th>Playback start idx</th>
+              <th>Playback end idx</th>
+              <th>t playback start, c</th>
+              <th>t playback end, c</th>
               <th>Параметры поиска</th>
               <th>Отклонение</th>
               <th>Отклонение, %</th>
@@ -1338,6 +1359,42 @@ document.addEventListener("DOMContentLoaded", () => {
     return str;
   };
 
+  const getInsightsExportColumns = () => [
+    { key: "sessionKey", label: "session" },
+    { key: "stimulusName", label: "stimulus" },
+    { key: "participantFullName", label: "participant_full_name" },
+    { key: "mean", label: "baseline_mean" },
+    { key: "variance", label: "baseline_variance" },
+    { key: "startIdx", label: "window_start_idx" },
+    { key: "endIdx", label: "window_end_idx" },
+    { key: "startTime", label: "window_start_time_s" },
+    { key: "endTime", label: "window_end_time_s" },
+    { key: "playbackStartIdx", label: "playback_start_idx" },
+    { key: "playbackEndIdx", label: "playback_end_idx" },
+    { key: "playbackStartTime", label: "playback_start_time_s" },
+    { key: "playbackEndTime", label: "playback_end_time_s" },
+    { key: "windowSizeSeconds", label: "window_size_s" },
+    { key: "searchLengthSeconds", label: "search_length_s" },
+    { key: "searchStartSeconds", label: "search_start_s" },
+    { key: "baselineDiv", label: "avg_delta" },
+    { key: "baselineDivPerc", label: "avg_delta_pct" },
+    { key: "baselineDivMax", label: "max_delta" },
+    { key: "baselineDivMaxPerc", label: "max_delta_pct" },
+    { key: "baselineDivMaxTimeProp", label: "max_delta_pos" },
+    { key: "baselineDivMin", label: "min_delta" },
+    { key: "baselineDivMinPerc", label: "min_delta_pct" },
+    { key: "baselineDivMinTimeProp", label: "min_delta_pos" },
+  ];
+
+  const buildInsightsExportRows = (entries, columns) =>
+    entries.map((entry) =>
+      columns.reduce((acc, column) => {
+        const value = entry[column.key];
+        acc[column.label] = Number.isFinite(value) ? value : value ?? "";
+        return acc;
+      }, {})
+    );
+
   const exportInsightsCsv = () => {
     const entries = buildInsightsEntries(
       getAnalysisSelectedSessions(cachedSessions || [])
@@ -1349,29 +1406,7 @@ document.addEventListener("DOMContentLoaded", () => {
       );
       return;
     }
-    const columns = [
-      { key: "sessionKey", label: "session" },
-      { key: "stimulusName", label: "stimulus" },
-      { key: "participantFullName", label: "participant_full_name" },
-      { key: "mean", label: "baseline_mean" },
-      { key: "variance", label: "baseline_variance" },
-      { key: "startIdx", label: "window_start_idx" },
-      { key: "endIdx", label: "window_end_idx" },
-      { key: "startTime", label: "window_start_time_s" },
-      { key: "endTime", label: "window_end_time_s" },
-      { key: "windowSizeSeconds", label: "window_size_s" },
-      { key: "searchLengthSeconds", label: "search_length_s" },
-      { key: "searchStartSeconds", label: "search_start_s" },
-      { key: "baselineDiv", label: "avg_delta" },
-      { key: "baselineDivPerc", label: "avg_delta_pct" },
-      { key: "baselineDivMax", label: "max_delta" },
-      { key: "baselineDivMaxPerc", label: "max_delta_pct" },
-      { key: "baselineDivMaxTimeProp", label: "max_delta_pos" },
-      { key: "baselineDivMin", label: "min_delta" },
-      { key: "baselineDivMinPerc", label: "min_delta_pct" },
-      { key: "baselineDivMinTimeProp", label: "min_delta_pos" },
-    ];
-
+    const columns = getInsightsExportColumns();
     const header = columns.map((c) => csvEscape(c.label)).join(",");
     const rows = entries.map((entry) =>
       columns
@@ -1397,6 +1432,35 @@ document.addEventListener("DOMContentLoaded", () => {
     setInsightsExportStatus(`Скачан CSV на ${entries.length} строк.`, "success");
   };
 
+  const exportInsightsXlsx = () => {
+    const entries = buildInsightsEntries(
+      getAnalysisSelectedSessions(cachedSessions || [])
+    );
+    if (!entries || entries.length === 0) {
+      setInsightsExportStatus(
+        "Нет данных для выгрузки: выберите сессии и baseline.",
+        "warning"
+      );
+      return;
+    }
+    if (!window.XLSX) {
+      setInsightsExportStatus("XLSX модуль не загружен.", "danger");
+      return;
+    }
+    const columns = getInsightsExportColumns();
+    const rows = buildInsightsExportRows(entries, columns);
+    const worksheet = window.XLSX.utils.json_to_sheet(rows, {
+      header: columns.map((column) => column.label),
+    });
+    const workbook = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      "baseline_insights"
+    );
+    window.XLSX.writeFile(workbook, "baseline_insights.xlsx");
+    setInsightsExportStatus(`Скачан XLSX на ${entries.length} строк.`, "success");
+  };
   const exportDatabase = async () => {
     if (!window.eyeTrackerDB) {
       setDbTransferStatus("Хранилище недоступно.", "danger");
@@ -4247,6 +4311,7 @@ document.addEventListener("DOMContentLoaded", () => {
   gotoTimeBtn?.addEventListener("click", gotoTime);
   selectBaselineBtn?.addEventListener("click", selectBaselineForSelected);
   insightsExportBtn?.addEventListener("click", exportInsightsCsv);
+  insightsExportXlsxBtn?.addEventListener("click", exportInsightsXlsx);
   exportDbButton?.addEventListener("click", exportDatabase);
   importDbButton?.addEventListener("click", importDatabase);
   baselineWindowSizeInput?.addEventListener("change", () =>
