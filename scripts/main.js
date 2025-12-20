@@ -1512,10 +1512,10 @@ document.addEventListener("DOMContentLoaded", () => {
       session.recordedAt || session.sessionKey || "Сессия",
     ];
     if (Number.isInteger(session.playbackStartIndex)) {
-      headerParts.push(`playbackStart=${session.playbackStartIndex}`);
+      headerParts.push(String(session.playbackStartIndex));
     }
     if (Number.isInteger(session.playbackEndIndex)) {
-      headerParts.push(`playbackEnd=${session.playbackEndIndex}`);
+      headerParts.push(String(session.playbackEndIndex));
     }
     const headerLine = headerParts.join(";");
     const columnsLine = "TIME;Validity;X;Y;Z;LP;RP";
