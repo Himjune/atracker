@@ -23,6 +23,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const overviewMarkedOnlyCheckbox = document.getElementById("overviewMarkedOnly");
   const sessionListElement = document.getElementById("sessionList");
   const sessionCountElement = document.getElementById("sessionCount");
+  const exportSelectedCsvButton = document.getElementById("exportSelectedCsvButton");
+  const exportSelectedCsvStatus = document.getElementById("exportSelectedCsvStatus");
   const pupilSessionList = document.getElementById("pupilSessionList");
   const pupilChartCanvas = document.getElementById("pupilChart");
   const pupilSelectAllBtn = document.getElementById("pupilSelectAll");
@@ -1004,6 +1006,14 @@ document.addEventListener("DOMContentLoaded", () => {
     statusElement.className = `small text-${type}`;
   };
 
+  const setExportSelectedCsvStatus = (message, type = "muted") => {
+    if (!exportSelectedCsvStatus) {
+      return;
+    }
+    exportSelectedCsvStatus.textContent = message;
+    exportSelectedCsvStatus.className = `small text-${type}`;
+  };
+
   const setMetaStatus = (message, type = "muted") => {
     if (!metaStatusElement) {
       return;
@@ -1552,6 +1562,21 @@ document.addEventListener("DOMContentLoaded", () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const exportSelectedSessionsCsv = () => {
+    const selected = getAnalysisSelectedSessions(cachedSessions || []);
+    if (!selected || selected.length === 0) {
+      setExportSelectedCsvStatus("Нет выбранных сессий.", "warning");
+      return;
+    }
+    setExportSelectedCsvStatus(`Готовим выгрузку: ${selected.length} файлов...`, "muted");
+    selected.forEach((session, index) => {
+      window.setTimeout(() => {
+        exportSessionCsv(session.sessionKey);
+      }, index * 150);
+    });
+    setExportSelectedCsvStatus(`Запущена выгрузка: ${selected.length} файлов.`, "success");
   };
 
   const getInsightsExportColumns = () => [
@@ -4501,6 +4526,7 @@ document.addEventListener("DOMContentLoaded", () => {
   unmatchedOnlyCheckbox?.addEventListener("change", () => renderWithFilters());
   overviewMarkedOnlyCheckbox?.addEventListener("change", () => renderWithFilters());
   overviewParticipantFilter?.addEventListener("input", () => renderWithFilters());
+  exportSelectedCsvButton?.addEventListener("click", () => exportSelectedSessionsCsv());
   overviewParticipantClear?.addEventListener("click", () => {
     if (overviewParticipantFilter) {
       overviewParticipantFilter.value = "";
