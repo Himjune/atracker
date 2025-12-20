@@ -20,12 +20,20 @@ const parseEyeTrackingCSV = (text) => {
     const cells = rawLine.split(";").map((cell) => cell.trim());
     const nonEmptyCells = cells.filter((cell) => cell.length > 0);
 
-    if (nonEmptyCells.length === 1) {
+    if (nonEmptyCells.length >= 1 && nonEmptyCells.length <= 3) {
       finalizeCurrentSession();
+      const playbackStart = nonEmptyCells.length === 3 ? Number.parseInt(cells[1], 10) : null;
+      const playbackEnd = nonEmptyCells.length === 3 ? Number.parseInt(cells[2], 10) : null;
       currentSession = {
         sessionKey: nonEmptyCells[0],
         points: [],
       };
+      if (Number.isFinite(playbackStart)) {
+        currentSession.playbackStartIndex = playbackStart;
+      }
+      if (Number.isFinite(playbackEnd)) {
+        currentSession.playbackEndIndex = playbackEnd;
+      }
       skipNextLineAsHeader = true;
       continue;
     }
