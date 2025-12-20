@@ -1508,7 +1508,16 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const buildSessionCsv = (session = {}) => {
-    const headerLine = session.recordedAt || session.sessionKey || "Сессия";
+    const headerParts = [
+      session.recordedAt || session.sessionKey || "Сессия",
+    ];
+    if (Number.isInteger(session.playbackStartIndex)) {
+      headerParts.push(`playbackStart=${session.playbackStartIndex}`);
+    }
+    if (Number.isInteger(session.playbackEndIndex)) {
+      headerParts.push(`playbackEnd=${session.playbackEndIndex}`);
+    }
+    const headerLine = headerParts.join(";");
     const columnsLine = "TIME;Validity;X;Y;Z;LP;RP";
     const points = getSessionRawPoints(session);
     const rows = points.map((point) =>
