@@ -190,6 +190,16 @@ const EyeTrackerRenderer = (() => {
             <td class="text-nowrap">${source}</td>
             <td class="text-nowrap">${meta ? "OK" : "Не найдено"}</td>
             <td>
+              <div class="d-flex justify-content-end mb-2">
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary btn-sm session-export-csv"
+                  data-session-key="${session.sessionKey}"
+                  aria-label="Выгрузить CSV"
+                >
+                  CSV
+                </button>
+              </div>
               <details>
                 <summary class="small text-primary">Первые точки</summary>
                 <div class="table-responsive mt-2">
