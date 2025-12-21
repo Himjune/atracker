@@ -2080,6 +2080,7 @@ document.addEventListener("DOMContentLoaded", () => {
           : [];
       cachedRecordings = recordings;
       cachedSessions = sessions;
+      sessionPlaybackRanges.clear();
       loadAnalysisSelection(sessions); // восстановить выбор анализа между перезагрузками
       cachedStimuliImages = stimuliImages || [];
       stimulusImageCache.clear();
@@ -2750,6 +2751,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const rawDilationSpeedRightMAD = medians?.rightMad ?? null;
             const rawDilationSpeedLeftMADThreshold = medians?.leftMadThreshold ?? null;
             const rawDilationSpeedRightMADThreshold = medians?.rightMadThreshold ?? null;
+            const playbackStartIndex = Number.isInteger(session.playbackStartIndex)
+              ? session.playbackStartIndex
+              : null;
+            const playbackEndIndex = Number.isInteger(session.playbackEndIndex)
+              ? session.playbackEndIndex
+              : null;
             return window.eyeTrackerDB.addSession({
               sessionKey: buildSessionKey(session.sessionKey, file.name),
               recordedAt: session.sessionKey,
@@ -2763,6 +2770,8 @@ document.addEventListener("DOMContentLoaded", () => {
               rawDilationSpeedRightMedian,
               rawDilationSpeedLeftMADThreshold,
               rawDilationSpeedRightMADThreshold,
+              playbackStartIndex,
+              playbackEndIndex,
               baselineWindow: baselineWindow || null,
               createdAt: session.sessionKey,
               sourceFile: file.name,
