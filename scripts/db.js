@@ -17,10 +17,13 @@ const EyeTrackerDB = (() => {
     const pupilRight = Number(raw.pupilRightMm);
     const badValidity =
       Number.isFinite(validity) && validity < VALIDITY_THRESHOLD;
-    const badPupil = [pupilLeft, pupilRight].some(
-      (value) =>
-        Number.isFinite(value) && (value < PUPIL_MIN_MM || value > PUPIL_MAX_MM)
-    );
+    const leftBad =
+      Number.isFinite(pupilLeft) &&
+      (pupilLeft < PUPIL_MIN_MM || pupilLeft > PUPIL_MAX_MM);
+    const rightBad =
+      Number.isFinite(pupilRight) &&
+      (pupilRight < PUPIL_MIN_MM || pupilRight > PUPIL_MAX_MM);
+    const badPupil = leftBad && rightBad;
     return Boolean(badValidity || badPupil);
   };
 
@@ -33,10 +36,24 @@ const EyeTrackerDB = (() => {
       delete raw.raw;
       delete raw.interpolated;
       delete raw.smooth;
-      raw.pupilAvg = window.eyeTrackerUtils?.computePupilAvg(
-        raw.pupilLeftMm,
-        raw.pupilRightMm
-      );
+      const leftVal = Number(raw.pupilLeftMm);
+      const rightVal = Number(raw.pupilRightMm);
+      const leftBad =
+        Number.isFinite(leftVal) &&
+        (leftVal < PUPIL_MIN_MM || leftVal > PUPIL_MAX_MM);
+      const rightBad =
+        Number.isFinite(rightVal) &&
+        (rightVal < PUPIL_MIN_MM || rightVal > PUPIL_MAX_MM);
+      if (leftBad && Number.isFinite(rightVal) && !rightBad) {
+        raw.pupilAvg = rightVal;
+      } else if (rightBad && Number.isFinite(leftVal) && !leftBad) {
+        raw.pupilAvg = leftVal;
+      } else {
+        raw.pupilAvg = window.eyeTrackerUtils?.computePupilAvg(
+          leftVal,
+          rightVal
+        );
+      }
       const isInvalid =
         raw.isInvalid === true || raw.isInvalid === false
           ? raw.isInvalid

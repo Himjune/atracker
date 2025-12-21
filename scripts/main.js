@@ -135,6 +135,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilMinInput = document.getElementById("pupilMin");
   const pupilMaxInput = document.getElementById("pupilMax");
   const madFactorInput = document.getElementById("madFactor");
+  const diffThresholdInput = document.getElementById("diffThreshold");
   const recomputePointsButton = document.getElementById("recomputePointsButton");
   const recomputeStatusElement = document.getElementById("recomputeStatus");
   const ANALYSIS_SELECTION_STORAGE_KEY = "eyeTrackerAnalysisSelection";
@@ -200,6 +201,14 @@ document.addEventListener("DOMContentLoaded", () => {
     return 3.5;
   };
 
+  const getDiffThreshold = () => {
+    const value = Number(diffThresholdInput?.value);
+    if (Number.isFinite(value)) {
+      return Math.max(0, value);
+    }
+    return 0;
+  };
+
   const getBaselineWindowSize = () => {
     const fallback =
       Number(baselineModule?.DEFAULT_WINDOW_SIZE_SECONDS) || 0.5;
@@ -256,24 +265,56 @@ document.addEventListener("DOMContentLoaded", () => {
     const pupilRight = Number(raw.pupilRightMm);
     const badValidity =
       Number.isFinite(validity) && validity < threshold;
-    const badPupil = [pupilLeft, pupilRight].some(
-        (value) =>
-          Number.isFinite(value) &&
-          (value < getPupilMin() || value > getPupilMax())
-    );
+    const leftBad =
+      Number.isFinite(pupilLeft) &&
+      (pupilLeft < getPupilMin() || pupilLeft > getPupilMax());
+    const rightBad =
+      Number.isFinite(pupilRight) &&
+      (pupilRight < getPupilMin() || pupilRight > getPupilMax());
+    const badPupil = leftBad && rightBad;
     return Boolean(badValidity || badPupil);
   };
 
   const normalizePointRaw = (pt) => {
     if (pt && typeof pt === "object" && pt.raw && typeof pt.raw === "object") {
       const raw = { ...pt.raw };
-      raw.pupilAvg = computePupilAvg(raw.pupilLeftMm, raw.pupilRightMm);
+      const leftVal = Number(raw.pupilLeftMm);
+      const rightVal = Number(raw.pupilRightMm);
+      const leftBad =
+        Number.isFinite(leftVal) &&
+        (leftVal < getPupilMin() || leftVal > getPupilMax());
+      const rightBad =
+        Number.isFinite(rightVal) &&
+        (rightVal < getPupilMin() || rightVal > getPupilMax());
+      if (leftBad && Number.isFinite(rightVal) && !rightBad) {
+        raw.pupilLeftMm = rightVal;
+        raw.pupilAvg = rightVal;
+      } else if (rightBad && Number.isFinite(leftVal) && !leftBad) {
+        raw.pupilRightMm = leftVal;
+        raw.pupilAvg = leftVal;
+      } else {
+        raw.pupilAvg = computePupilAvg(leftVal, rightVal);
+      }
       raw.isInvalid = computePointInvalid(raw);
       return raw;
     }
     if (pt && typeof pt === "object") {
       const raw = { ...pt };
-      raw.pupilAvg = computePupilAvg(raw.pupilLeftMm, raw.pupilRightMm);
+      const leftVal = Number(raw.pupilLeftMm);
+      const rightVal = Number(raw.pupilRightMm);
+      const leftBad =
+        Number.isFinite(leftVal) &&
+        (leftVal < getPupilMin() || leftVal > getPupilMax());
+      const rightBad =
+        Number.isFinite(rightVal) &&
+        (rightVal < getPupilMin() || rightVal > getPupilMax());
+      if (leftBad && Number.isFinite(rightVal) && !rightBad) {
+        raw.pupilAvg = rightVal;
+      } else if (rightBad && Number.isFinite(leftVal) && !leftBad) {
+        raw.pupilAvg = leftVal;
+      } else {
+        raw.pupilAvg = computePupilAvg(leftVal, rightVal);
+      }
       raw.isInvalid = computePointInvalid(raw);
       return raw;
     }
@@ -281,6 +322,53 @@ document.addEventListener("DOMContentLoaded", () => {
       pupilAvg: computePupilAvg(undefined, undefined),
       isInvalid: computePointInvalid({}),
     };
+  };
+
+  const applyDiffThresholdToRawPoints = (rawPoints = []) => {
+    const threshold = getDiffThreshold();
+    if (!Number.isFinite(threshold) || threshold <= 0) {
+      return;
+    }
+    for (let i = 1; i < rawPoints.length; i += 1) {
+      const prev = rawPoints[i - 1] || {};
+      const curr = rawPoints[i] || {};
+      const prevLeft = Number(prev.pupilLeftMm);
+      const prevRight = Number(prev.pupilRightMm);
+      const currLeft = Number(curr.pupilLeftMm);
+      const currRight = Number(curr.pupilRightMm);
+      const leftInvalid =
+        Number.isFinite(prevLeft) &&
+        Number.isFinite(currLeft) &&
+        Math.abs(currLeft - prevLeft) < threshold;
+      const rightInvalid =
+        Number.isFinite(prevRight) &&
+        Number.isFinite(currRight) &&
+        Math.abs(currRight - prevRight) < threshold;
+
+      if (leftInvalid && Number.isFinite(currRight) && !rightInvalid) {
+        curr.pupilLeftMm = currRight;
+      } else if (rightInvalid && Number.isFinite(currLeft) && !leftInvalid) {
+        curr.pupilRightMm = currLeft;
+      }
+
+      const leftVal = Number(curr.pupilLeftMm);
+      const rightVal = Number(curr.pupilRightMm);
+      const leftBad =
+        Number.isFinite(leftVal) &&
+        (leftVal < getPupilMin() || leftVal > getPupilMax());
+      const rightBad =
+        Number.isFinite(rightVal) &&
+        (rightVal < getPupilMin() || rightVal > getPupilMax());
+      if (leftBad && Number.isFinite(rightVal) && !rightBad) {
+        curr.pupilAvg = rightVal;
+      } else if (rightBad && Number.isFinite(leftVal) && !leftBad) {
+        curr.pupilAvg = leftVal;
+      } else {
+        curr.pupilAvg = computePupilAvg(leftVal, rightVal);
+      }
+      curr.isInvalid =
+        Boolean(leftInvalid && rightInvalid) || computePointInvalid(curr);
+    }
   };
 
   const computeMedian = (values = []) => {
@@ -413,7 +501,7 @@ document.addEventListener("DOMContentLoaded", () => {
           Number.isFinite(rightMadThreshold) &&
           Number.isFinite(rightSpeed) &&
           rightSpeed > rightMadThreshold;
-        if (leftTooFast || rightTooFast) {
+        if (leftTooFast && rightTooFast) {
           raw.isInvalid = true;
         }
       });
@@ -614,6 +702,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const rawPoints = Array.isArray(points)
       ? points.map((pt) => normalizePointRaw(pt))
       : [];
+    applyDiffThresholdToRawPoints(rawPoints);
     const medians = computeDilationSpeeds(rawPoints);
     const interpolatedPoints = buildInterpolatedPoints(rawPoints);
     const smoothPoints = buildSmoothedPoints(interpolatedPoints);
@@ -4753,7 +4842,13 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   };
 
-  [validityThresholdInput, pupilMinInput, pupilMaxInput, madFactorInput].forEach((input) =>
+  [
+    validityThresholdInput,
+    pupilMinInput,
+    pupilMaxInput,
+    madFactorInput,
+    diffThresholdInput,
+  ].forEach((input) =>
     input?.addEventListener("input", handleThresholdChange)
   );
   recomputePointsButton?.addEventListener("click", async (event) => {
