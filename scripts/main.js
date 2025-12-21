@@ -50,6 +50,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const baselineStartFromPlaybackCheckbox = document.getElementById(
     "baselineStartFromPlayback"
   );
+  const baselineStartFromPlaybackOffsetCheckbox = document.getElementById(
+    "baselineStartFromPlaybackOffset"
+  );
   const selectBaselineBtn = document.getElementById("selectBaselineButton");
   const recomputeSelectedBaselineBtn = document.getElementById(
     "recomputeSelectedBaselineButton"
@@ -344,6 +347,9 @@ document.addEventListener("DOMContentLoaded", () => {
         Number.isFinite(prevRight) &&
         Number.isFinite(currRight) &&
         Math.abs(currRight - prevRight) < threshold;
+      if (leftInvalid || rightInvalid) {
+        prev.isInvalid = true;
+      }
 
       if (leftInvalid && Number.isFinite(currRight) && !rightInvalid) {
         curr.pupilLeftMm = currRight;
@@ -924,7 +930,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!baselineSearchStartInput || !session) {
       return;
     }
-    if (!baselineStartFromPlaybackCheckbox?.checked) {
+    if (
+      !baselineStartFromPlaybackCheckbox?.checked &&
+      !baselineStartFromPlaybackOffsetCheckbox?.checked
+    ) {
       return;
     }
     const idx = Number(session.playbackStartIndex);
@@ -932,7 +941,10 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const points = getSessionPoints(session);
-    const time = Number(points?.[idx]?.timeOffsetMs);
+    let time = Number(points?.[idx]?.timeOffsetMs);
+    if (baselineStartFromPlaybackOffsetCheckbox?.checked && Number.isFinite(time)) {
+      time = Math.max(0, time - 0.2);
+    }
     if (Number.isFinite(time)) {
       baselineSearchStartInput.value = time;
       if (baselineSearchLengthInput) {
@@ -945,7 +957,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!baselineSearchStartInput) {
       return;
     }
-    if (!baselineStartFromPlaybackCheckbox?.checked) {
+    if (
+      !baselineStartFromPlaybackCheckbox?.checked &&
+      !baselineStartFromPlaybackOffsetCheckbox?.checked
+    ) {
       return;
     }
     if (selectedPupilSessions.size !== 1) {
@@ -4904,6 +4919,9 @@ document.addEventListener("DOMContentLoaded", () => {
     renderPupilChart(cachedSessions || [])
   );
   baselineStartFromPlaybackCheckbox?.addEventListener("change", () =>
+    syncBaselineSearchStartWithSelection()
+  );
+  baselineStartFromPlaybackOffsetCheckbox?.addEventListener("change", () =>
     syncBaselineSearchStartWithSelection()
   );
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
