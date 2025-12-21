@@ -24,6 +24,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const sessionListElement = document.getElementById("sessionList");
   const sessionCountElement = document.getElementById("sessionCount");
   const exportSelectedCsvButton = document.getElementById("exportSelectedCsvButton");
+  const overviewSelectAllButton = document.getElementById("overviewSelectAllButton");
+  const overviewClearAllButton = document.getElementById("overviewClearAllButton");
   const exportSelectedCsvStatus = document.getElementById("exportSelectedCsvStatus");
   const pupilSessionList = document.getElementById("pupilSessionList");
   const pupilChartCanvas = document.getElementById("pupilChart");
@@ -44,6 +46,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const baselineWindowSizeInput = document.getElementById("baselineWindowSize");
   const baselineSearchLengthInput = document.getElementById("baselineSearchLength");
   const baselineSearchStartInput = document.getElementById("baselineSearchStart");
+  const baselineStartFromPlaybackCheckbox = document.getElementById(
+    "baselineStartFromPlayback"
+  );
   const selectBaselineBtn = document.getElementById("selectBaselineButton");
   const recomputeSelectedBaselineBtn = document.getElementById(
     "recomputeSelectedBaselineButton"
@@ -143,6 +148,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let pupilDataBounds = null;
   let pupilBaseView = null;
   let pupilUserAdjusted = false;
+  let lastPupilSelectionSignature = "";
   let varianceView = null;
   let varianceBaseView = null;
   let varianceUserAdjusted = false;
@@ -846,6 +852,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!baselineSearchStartInput || !session) {
       return;
     }
+    if (!baselineStartFromPlaybackCheckbox?.checked) {
+      return;
+    }
     const idx = Number(session.playbackStartIndex);
     if (!Number.isInteger(idx) || idx < 0) {
       return;
@@ -862,6 +871,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const syncBaselineSearchStartWithSelection = () => {
     if (!baselineSearchStartInput) {
+      return;
+    }
+    if (!baselineStartFromPlaybackCheckbox?.checked) {
       return;
     }
     if (selectedPupilSessions.size !== 1) {
@@ -1479,14 +1491,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const recordingsByDate = buildRecordingsMap(cachedRecordings || []);
     const metaKey = buildRecordingKey(session.recordedAt, session.stimulusName);
     const meta = metaKey ? recordingsByDate.get(metaKey) : null;
-    const experiment = meta?.experimentName || "experiment";
+    const experimentRaw = meta?.experimentName || "experiment";
+    const experiment = experimentRaw.replace(/\s+/g, "-");
     const stimulus = meta?.stimulusName || session.stimulusName || "stimulus";
-    const participantRaw = meta?.participantFullName || meta?.participantName || "";
-    const participantInitials = toNameInitials(participantRaw) || "participant";
+    const sessionId = Number.isInteger(session.id) ? String(session.id) : "";
     const experimentToken = toFileToken(experiment);
     const stimulusToken = toFileToken(stimulus);
-    const participantToken = toFileToken(participantInitials, { transliterate: true });
-    return `${experimentToken}_${stimulusToken}_${participantToken}.csv`;
+    const sessionIdToken = toFileToken(sessionId || session.sessionKey || "session", {
+      transliterate: true,
+    });
+    return `${experimentToken}_${stimulusToken}_${sessionIdToken}.csv`;
   };
 
   const getSessionRawPoints = (session = {}) => {
@@ -3490,6 +3504,13 @@ document.addEventListener("DOMContentLoaded", () => {
     ctx.clearRect(0, 0, width, height);
 
     const selected = sessions.filter((s) => selectedPupilSessions.has(s.sessionKey));
+    const selectionSignature = selected
+      .map((s) => s.sessionKey)
+      .filter(Boolean)
+      .sort()
+      .join("|");
+    const selectionChanged = selectionSignature !== lastPupilSelectionSignature;
+    lastPupilSelectionSignature = selectionSignature;
 
     ctx.font = "12px sans-serif";
     ctx.fillStyle = "#6c757d";
@@ -3761,12 +3782,28 @@ document.addEventListener("DOMContentLoaded", () => {
     pupilDataBounds = { xMin: minX, xMax: maxX, yMin: minY, yMax: maxY };
     pupilBaseView = expandBounds(pupilDataBounds);
 
-    if (!pupilView) {
-      pupilView = { ...pupilBaseView };
-    } else if (!pupilUserAdjusted) {
-      pupilView = { ...pupilBaseView };
-    } else {
+    const baseRangeX = (pupilBaseView?.xMax ?? 0) - (pupilBaseView?.xMin ?? 0) || 1;
+    const prevRangeX =
+      pupilView && Number.isFinite(pupilView.xMax) && Number.isFinite(pupilView.xMin)
+        ? pupilView.xMax - pupilView.xMin
+        : baseRangeX;
+    const targetRangeX = Math.min(baseRangeX, Math.max(1, prevRangeX || baseRangeX));
+
+    if (selectionChanged || !pupilUserAdjusted) {
+      const nextView = {
+        xMin: 0,
+        xMax: targetRangeX,
+        yMin: pupilBaseView.yMin,
+        yMax: pupilBaseView.yMax,
+      };
+      pupilView = clampViewToBounds(nextView, pupilDataBounds);
+      if (selectionChanged) {
+        pupilUserAdjusted = false;
+      }
+    } else if (pupilView) {
       pupilView = clampViewToBounds(pupilView, pupilDataBounds);
+    } else {
+      pupilView = { ...pupilBaseView };
     }
 
     const safeRange = (value, fallback) =>
@@ -4294,6 +4331,21 @@ document.addEventListener("DOMContentLoaded", () => {
     drawAxesOverlay();
   };
 
+  const selectAllOverviewSessions = () => {
+    const recordingsByDate = buildRecordingsMap();
+    const filtered = applyFilters(cachedSessions || [], recordingsByDate);
+    filtered.forEach((session) => analysisSelectedSessions.add(session.sessionKey));
+    persistAnalysisSelection();
+    renderWithFilters();
+  };
+
+  const clearAllOverviewSessions = () => {
+    analysisSelectedSessions.clear();
+    selectedPupilSessions.clear();
+    persistAnalysisSelection();
+    renderWithFilters();
+  };
+
   const selectAllPupilSessions = () => {
     const recordingsByDate = buildRecordingsMap();
     filterPupilSessions(
@@ -4536,6 +4588,8 @@ document.addEventListener("DOMContentLoaded", () => {
   overviewMarkedOnlyCheckbox?.addEventListener("change", () => renderWithFilters());
   overviewParticipantFilter?.addEventListener("input", () => renderWithFilters());
   exportSelectedCsvButton?.addEventListener("click", () => exportSelectedSessionsCsv());
+  overviewSelectAllButton?.addEventListener("click", () => selectAllOverviewSessions());
+  overviewClearAllButton?.addEventListener("click", () => clearAllOverviewSessions());
   overviewParticipantClear?.addEventListener("click", () => {
     if (overviewParticipantFilter) {
       overviewParticipantFilter.value = "";
@@ -4739,6 +4793,9 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   baselineSearchStartInput?.addEventListener("change", () =>
     renderPupilChart(cachedSessions || [])
+  );
+  baselineStartFromPlaybackCheckbox?.addEventListener("change", () =>
+    syncBaselineSearchStartWithSelection()
   );
   pupilSelectAllBtn?.addEventListener("click", () => selectAllPupilSessions());
   pupilClearAllBtn?.addEventListener("click", () => clearAllPupilSessions());
