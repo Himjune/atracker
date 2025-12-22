@@ -803,12 +803,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const deviation = {
       baselineDiv: 0,
       baselineDivPerc: 0,
+
       baselineDivMax: -100,
       baselineDivMaxPerc: 0,
       baselineDivMaxTimeProp: 0,
+
       baselineDivMin: 100,
       baselineDivMinPerc: 0,
       baselineDivMinTimeProp: 0,
+
+      baselineDivMinAfterMax: 100,
+      baselineDivMinAfterMaxPerc: 0,
+      baselineDivMinAfterMaxTimeProp: 0,
     };
 
     const baseline = session?.selectedBaselineWindow;
@@ -853,11 +859,23 @@ document.addEventListener("DOMContentLoaded", () => {
         deviation.baselineDivMax = div;
         deviation.baselineDivMaxPerc = (div / mean) * 100;
         deviation.baselineDivMaxTimeProp = (i - startIdx) / lengthSafe * 100;
+
+        
+        deviation.baselineDivMinAfterMax = div;
+        deviation.baselineDivMinAfterMaxPerc = (div / mean) * 100;
+        deviation.baselineDivMinAfterMaxTimeProp = (i - startIdx) / lengthSafe * 100;
+      
       }
-      if (div < deviation.baselineDivMin && i > startIdx + 100) {
+      if (div < deviation.baselineDivMin) {
         deviation.baselineDivMin = div;
         deviation.baselineDivMinPerc = (div / mean) * 100;
         deviation.baselineDivMinTimeProp = (i - startIdx) / lengthSafe * 100;
+      }
+
+      if (div < deviation.baselineDivMinAfterMax) {
+        deviation.baselineDivMinAfterMax = div;
+        deviation.baselineDivMinAfterMaxPerc = (div / mean) * 100;
+        deviation.baselineDivMinAfterMaxTimeProp = (i - startIdx) / lengthSafe * 100;
       }
       
       count += 1;
@@ -943,7 +961,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const points = getSessionPoints(session);
     let time = Number(points?.[idx]?.timeOffsetMs);
     if (baselineStartFromPlaybackOffsetCheckbox?.checked && Number.isFinite(time)) {
-      time = Math.max(0, time - 0.2);
+      time = Math.max(0, time - 0.3);
     }
     if (Number.isFinite(time)) {
       baselineSearchStartInput.value = time;
@@ -1325,6 +1343,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const playbackEndTime = getPointTime(session.points, playbackEndIdx);
       return {
         sessionKey: session.sessionKey || "Сессия",
+        experimentName: meta?.experimentName || "—",
         stimulusName: session.stimulusName || meta?.stimulusName || "—",
         participantFullName: meta?.participantFullName || meta?.participantName || "",
         mean: Number(baseline.mean),
@@ -1348,6 +1367,9 @@ document.addEventListener("DOMContentLoaded", () => {
         baselineDivMin: deviation.baselineDivMin,
         baselineDivMinPerc: deviation.baselineDivMinPerc,
         baselineDivMinTimeProp: deviation.baselineDivMinTimeProp,
+        baselineDivMinAfterMax: deviation.baselineDivMinAfterMax,
+        baselineDivMinAfterMaxPerc: deviation.baselineDivMinAfterMaxPerc,
+        baselineDivMinAfterMaxTimeProp: deviation.baselineDivMinAfterMaxTimeProp,
       };
     });
   };
@@ -1393,6 +1415,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return `
           <tr>
             <td class="text-nowrap">${entry.sessionKey}</td>
+            <td class="text-muted">${entry.experimentName || "—"}</td>
             <td class="text-muted">${entry.stimulusName}</td>
             <td class="text-muted">${entry.participantFullName || "—"}</td>
             <td>${fmt(entry.mean)}</td>
@@ -1414,6 +1437,9 @@ document.addEventListener("DOMContentLoaded", () => {
             <td>${fmt(entry.baselineDivMin)}</td>
             <td>${fmt(entry.baselineDivMinPerc)}</td>
             <td>${fmt(entry.baselineDivMinTimeProp)}</td>
+            <td>${fmt(entry.baselineDivMinAfterMax)}</td>
+            <td>${fmt(entry.baselineDivMinAfterMaxPerc)}</td>
+            <td>${fmt(entry.baselineDivMinAfterMaxTimeProp)}</td>
           </tr>
         `;
       })
@@ -1425,6 +1451,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <thead class="table-light">
             <tr>
               <th>Сессия</th>
+              <th>Эксперимент</th>
               <th>Стимул</th>
               <th>Участник</th>
               <th>Mean</th>
@@ -1444,6 +1471,9 @@ document.addEventListener("DOMContentLoaded", () => {
               <th>Мин откл.</th>
               <th>Мин откл., %</th>
               <th>Время мин, доля</th>
+              <th>Мин после макс</th>
+              <th>Мин после макс, %</th>
+              <th>Время мин после макс, доля</th>
             </tr>
           </thead>
           <tbody>
@@ -1682,6 +1712,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const getInsightsExportColumns = () => [
     { key: "sessionKey", label: "session" },
+    { key: "experimentName", label: "experiment" },
     { key: "stimulusName", label: "stimulus" },
     { key: "participantFullName", label: "participant_full_name" },
     { key: "mean", label: "baseline_mean" },
@@ -1705,6 +1736,9 @@ document.addEventListener("DOMContentLoaded", () => {
     { key: "baselineDivMin", label: "min_delta" },
     { key: "baselineDivMinPerc", label: "min_delta_pct" },
     { key: "baselineDivMinTimeProp", label: "min_delta_pos" },
+    { key: "baselineDivMinAfterMax", label: "min_after_max_delta" },
+    { key: "baselineDivMinAfterMaxPerc", label: "min_after_max_delta_pct" },
+    { key: "baselineDivMinAfterMaxTimeProp", label: "min_after_max_delta_pos" },
   ];
 
   const buildInsightsExportRows = (entries, columns) =>
