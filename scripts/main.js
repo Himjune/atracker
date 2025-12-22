@@ -16,6 +16,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const overviewParticipantSuggestions = document.getElementById(
     "overviewParticipantSuggestions"
   );
+  const overviewParticipantPrev = document.getElementById(
+    "overviewParticipantPrev"
+  );
+  const overviewParticipantNext = document.getElementById(
+    "overviewParticipantNext"
+  );
   const overviewParticipantClear = document.getElementById(
     "overviewParticipantClear"
   );
@@ -38,6 +44,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const pupilParticipantSuggestions = document.getElementById(
     "pupilParticipantSuggestions"
   );
+  const pupilParticipantPrev = document.getElementById("pupilParticipantPrev");
+  const pupilParticipantNext = document.getElementById("pupilParticipantNext");
   const pupilParticipantClear = document.getElementById(
     "pupilParticipantClear"
   );
@@ -130,6 +138,8 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   const sectionNavOffset = 140;
   let navSyncScheduled = false;
+  let overviewParticipantsList = [];
+  let pupilParticipantsList = [];
   const parserModule = window.eyeTrackerParser;
   const rendererModule = window.eyeTrackerRenderer;
   const utilsModule = window.eyeTrackerUtils;
@@ -375,6 +385,29 @@ document.addEventListener("DOMContentLoaded", () => {
       curr.isInvalid =
         Boolean(leftInvalid && rightInvalid) || computePointInvalid(curr);
     }
+  };
+
+  const applyInvalidHalo = (rawPoints = [], radius = 5) => {
+    if (!Array.isArray(rawPoints) || rawPoints.length === 0) {
+      return;
+    }
+    const span = Math.max(0, Math.floor(radius));
+    if (!span) {
+      return;
+    }
+    const invalidIndices = rawPoints.reduce((acc, point, index) => {
+      if (point?.isInvalid) {
+        acc.push(index);
+      }
+      return acc;
+    }, []);
+    invalidIndices.forEach((index) => {
+      const start = Math.max(0, index - span);
+      const end = Math.min(rawPoints.length - 1, index + span);
+      for (let i = start; i <= end; i += 1) {
+        rawPoints[i].isInvalid = true;
+      }
+    });
   };
 
   const computeMedian = (values = []) => {
@@ -710,6 +743,7 @@ document.addEventListener("DOMContentLoaded", () => {
       : [];
     applyDiffThresholdToRawPoints(rawPoints);
     const medians = computeDilationSpeeds(rawPoints);
+    applyInvalidHalo(rawPoints, 5);
     const interpolatedPoints = buildInterpolatedPoints(rawPoints);
     const smoothPoints = buildSmoothedPoints(interpolatedPoints);
     const windowSize = getBaselineWindowSize();
@@ -870,16 +904,11 @@ document.addEventListener("DOMContentLoaded", () => {
           deviation.baselineDivMaxIndex = i;
         }
         
-        if (i > baseline.endIndex && div > deviation.baselineDivMaxAfterBase) {
+        if (i > baseline.endIndex && (i - startIdx) / lengthSafe <= 0.8 && div > deviation.baselineDivMaxAfterBase) {
           deviation.baselineDivMaxAfterBase = div;
           deviation.baselineDivMaxAfterBasePerc = (div / mean) * 100;
           deviation.baselineDivMaxAfterBaseTimeProp = (i - startIdx) / lengthSafe * 100;
           deviation.baselineDivMaxAfterBaseIndex = i;
-
-          deviation.baselineDivMinAfterMax = div;
-          deviation.baselineDivMinAfterMaxPerc = (div / mean) * 100;
-          deviation.baselineDivMinAfterMaxTimeProp = (i - startIdx) / lengthSafe * 100;
-          deviation.baselineDivMinAfterMaxIndex = i;
         }
 
         if (div < deviation.baselineDivMin) {
@@ -889,7 +918,7 @@ document.addEventListener("DOMContentLoaded", () => {
           deviation.baselineDivMinIndex = i;
         }
 
-        if (div < deviation.baselineDivMinAfterMax) {
+        if (i > baseline.endIndex && div < deviation.baselineDivMinAfterMax) {
           deviation.baselineDivMinAfterMax = div;
           deviation.baselineDivMinAfterMaxPerc = (div / mean) * 100;
           deviation.baselineDivMinAfterMaxTimeProp = (i - startIdx) / lengthSafe * 100;
@@ -1222,6 +1251,18 @@ document.addEventListener("DOMContentLoaded", () => {
       reader.readAsDataURL(file);
     });
 
+  const buildParticipantsList = (recordings = []) =>
+    Array.from(
+      new Set(
+        (recordings || [])
+          .flatMap((record) => [
+            (record.participantFullName || "").trim(),
+            (record.participantName || "").trim(),
+          ])
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
   const populatePupilStimulusFilter = (recordings) => {
     if (!pupilStimulusFilter) {
       return;
@@ -1251,19 +1292,49 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!pupilParticipantSuggestions) {
       return;
     }
-    const participants = new Set(
-      (recordings || [])
-        .flatMap((r) => [
-          (r.participantFullName || "").trim(),
-          (r.participantName || "").trim(),
-        ])
-        .filter(Boolean)
-    );
-    const options = Array.from(participants)
-      .sort((a, b) => a.localeCompare(b))
+    const participantsList = buildParticipantsList(recordings);
+    pupilParticipantsList = participantsList;
+    const options = participantsList
       .map((value) => `<option value="${value}"></option>`)
       .join("");
     pupilParticipantSuggestions.innerHTML = options;
+  };
+
+  const shiftParticipantFilter = (direction, input, participants, onChange) => {
+    if (!input || !Array.isArray(participants) || participants.length === 0) {
+      return;
+    }
+    const current = String(input.value || "").trim().toLowerCase();
+    const currentIndex = participants.findIndex(
+      (name) => String(name).trim().toLowerCase() === current
+    );
+    let nextIndex = 0;
+    if (currentIndex >= 0) {
+      nextIndex =
+        direction === "next"
+          ? (currentIndex + 1) % participants.length
+          : (currentIndex - 1 + participants.length) % participants.length;
+    } else {
+      nextIndex = direction === "next" ? 0 : participants.length - 1;
+    }
+    input.value = participants[nextIndex] || "";
+    input.focus();
+    if (typeof onChange === "function") {
+      onChange();
+    }
+  };
+
+  const isEditableTarget = (target) => {
+    if (!target || !(target instanceof HTMLElement)) {
+      return false;
+    }
+    const tag = target.tagName;
+    return (
+      target.isContentEditable ||
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      tag === "SELECT"
+    );
   };
 
   const filterPupilSessions = (sessions, recordingsByDate) => {
@@ -2063,7 +2134,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const experiments = new Set();
     const stimuli = new Set();
-    const participants = new Set();
+    const participantsList = buildParticipantsList(recordings);
+    overviewParticipantsList = participantsList;
 
     recordings.forEach((record) =>
       experiments.add((record.experimentName || "").trim())
@@ -2071,13 +2143,6 @@ document.addEventListener("DOMContentLoaded", () => {
     recordings.forEach((record) =>
       stimuli.add((record.stimulusName || "").trim())
     );
-    recordings.forEach((record) => {
-      const full = (record.participantFullName || "").trim();
-      const short = (record.participantName || "").trim();
-      if (full) participants.add(full);
-      if (short) participants.add(short);
-    });
-
     const renderOptions = (select, values, labelAll) => {
       const currentValue = select.value || "all";
       const options = [
@@ -2102,8 +2167,7 @@ document.addEventListener("DOMContentLoaded", () => {
     renderOptions(stimulusFilter, stimuli, "Все стимулы");
 
     if (overviewParticipantSuggestions) {
-      const options = Array.from(participants)
-        .sort((a, b) => a.localeCompare(b))
+      const options = participantsList
         .map((value) => `<option value="${value}"></option>`)
         .join("");
       overviewParticipantSuggestions.innerHTML = options;
@@ -2471,6 +2535,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const session = filtered.find((s) => s.sessionKey === keys[targetIndex]);
     if (session) {
       syncBaselineSearchStartWithSession(session);
+      if (session.selectedBaselineWindow) {
+        const points = getSessionPoints(session);
+        session.selectedBaselineMeanDeviation = computeSelectedBaselineDeviation(
+          session,
+          points
+        );
+      }
     }
     pupilUserAdjusted = false;
     renderPupilArea(filtered, recordingsByDate);
@@ -4797,6 +4868,22 @@ document.addEventListener("DOMContentLoaded", () => {
   unmatchedOnlyCheckbox?.addEventListener("change", () => renderWithFilters());
   overviewMarkedOnlyCheckbox?.addEventListener("change", () => renderWithFilters());
   overviewParticipantFilter?.addEventListener("input", () => renderWithFilters());
+  overviewParticipantPrev?.addEventListener("click", () =>
+    shiftParticipantFilter(
+      "prev",
+      overviewParticipantFilter,
+      overviewParticipantsList,
+      renderWithFilters
+    )
+  );
+  overviewParticipantNext?.addEventListener("click", () =>
+    shiftParticipantFilter(
+      "next",
+      overviewParticipantFilter,
+      overviewParticipantsList,
+      renderWithFilters
+    )
+  );
   exportSelectedCsvButton?.addEventListener("click", () => exportSelectedSessionsCsv());
   overviewSelectAllButton?.addEventListener("click", () => selectAllOverviewSessions());
   overviewClearAllButton?.addEventListener("click", () => clearAllOverviewSessions());
@@ -4823,6 +4910,30 @@ document.addEventListener("DOMContentLoaded", () => {
       buildRecordingsMap(cachedRecordings || [])
     )
   );
+  pupilParticipantPrev?.addEventListener("click", () =>
+    shiftParticipantFilter(
+      "prev",
+      pupilParticipantFilter,
+      pupilParticipantsList,
+      () =>
+        renderPupilArea(
+          cachedSessions || [],
+          buildRecordingsMap(cachedRecordings || [])
+        )
+    )
+  );
+  pupilParticipantNext?.addEventListener("click", () =>
+    shiftParticipantFilter(
+      "next",
+      pupilParticipantFilter,
+      pupilParticipantsList,
+      () =>
+        renderPupilArea(
+          cachedSessions || [],
+          buildRecordingsMap(cachedRecordings || [])
+        )
+    )
+  );
   pupilParticipantClear?.addEventListener("click", () => {
     if (pupilParticipantFilter) {
       pupilParticipantFilter.value = "";
@@ -4832,6 +4943,24 @@ document.addEventListener("DOMContentLoaded", () => {
       cachedSessions || [],
       buildRecordingsMap(cachedRecordings || [])
     );
+  });
+  window.addEventListener("keydown", (event) => {
+    if (
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      isEditableTarget(event.target)
+    ) {
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      shiftSelectedSession("prev");
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      shiftSelectedSession("next");
+    }
   });
   gazeColorMode?.addEventListener("change", () =>
     renderGazeArea(
