@@ -807,14 +807,22 @@ document.addEventListener("DOMContentLoaded", () => {
       baselineDivMax: -100,
       baselineDivMaxPerc: 0,
       baselineDivMaxTimeProp: 0,
+      baselineDivMaxIndex: null,
 
       baselineDivMin: 100,
       baselineDivMinPerc: 0,
       baselineDivMinTimeProp: 0,
+      baselineDivMinIndex: null,
+
+      baselineDivMaxAfterBase: -100,
+      baselineDivMaxAfterBasePerc: 0,
+      baselineDivMaxAfterBaseTimeProp: 0,
+      baselineDivMaxAfterBaseIndex: null,
 
       baselineDivMinAfterMax: 100,
       baselineDivMinAfterMaxPerc: 0,
       baselineDivMinAfterMaxTimeProp: 0,
+      baselineDivMinAfterMaxIndex: null,
     };
 
     const baseline = session?.selectedBaselineWindow;
@@ -855,28 +863,38 @@ document.addEventListener("DOMContentLoaded", () => {
 
       combinedPoints[i].smooth.pupilAvgDiv = div;
 
-      if (div > deviation.baselineDivMax) {
-        deviation.baselineDivMax = div;
-        deviation.baselineDivMaxPerc = (div / mean) * 100;
-        deviation.baselineDivMaxTimeProp = (i - startIdx) / lengthSafe * 100;
-
+        if (div > deviation.baselineDivMax) {
+          deviation.baselineDivMax = div;
+          deviation.baselineDivMaxPerc = (div / mean) * 100;
+          deviation.baselineDivMaxTimeProp = (i - startIdx) / lengthSafe * 100;
+          deviation.baselineDivMaxIndex = i;
+        }
         
-        deviation.baselineDivMinAfterMax = div;
-        deviation.baselineDivMinAfterMaxPerc = (div / mean) * 100;
-        deviation.baselineDivMinAfterMaxTimeProp = (i - startIdx) / lengthSafe * 100;
-      
-      }
-      if (div < deviation.baselineDivMin) {
-        deviation.baselineDivMin = div;
-        deviation.baselineDivMinPerc = (div / mean) * 100;
-        deviation.baselineDivMinTimeProp = (i - startIdx) / lengthSafe * 100;
-      }
+        if (i > baseline.endIndex && div > deviation.baselineDivMaxAfterBase) {
+          deviation.baselineDivMaxAfterBase = div;
+          deviation.baselineDivMaxAfterBasePerc = (div / mean) * 100;
+          deviation.baselineDivMaxAfterBaseTimeProp = (i - startIdx) / lengthSafe * 100;
+          deviation.baselineDivMaxAfterBaseIndex = i;
 
-      if (div < deviation.baselineDivMinAfterMax) {
-        deviation.baselineDivMinAfterMax = div;
-        deviation.baselineDivMinAfterMaxPerc = (div / mean) * 100;
-        deviation.baselineDivMinAfterMaxTimeProp = (i - startIdx) / lengthSafe * 100;
-      }
+          deviation.baselineDivMinAfterMax = div;
+          deviation.baselineDivMinAfterMaxPerc = (div / mean) * 100;
+          deviation.baselineDivMinAfterMaxTimeProp = (i - startIdx) / lengthSafe * 100;
+          deviation.baselineDivMinAfterMaxIndex = i;
+        }
+
+        if (div < deviation.baselineDivMin) {
+          deviation.baselineDivMin = div;
+          deviation.baselineDivMinPerc = (div / mean) * 100;
+          deviation.baselineDivMinTimeProp = (i - startIdx) / lengthSafe * 100;
+          deviation.baselineDivMinIndex = i;
+        }
+
+        if (div < deviation.baselineDivMinAfterMax) {
+          deviation.baselineDivMinAfterMax = div;
+          deviation.baselineDivMinAfterMaxPerc = (div / mean) * 100;
+          deviation.baselineDivMinAfterMaxTimeProp = (i - startIdx) / lengthSafe * 100;
+          deviation.baselineDivMinAfterMaxIndex = i;
+        }
       
       count += 1;
     }
@@ -1309,6 +1327,9 @@ document.addEventListener("DOMContentLoaded", () => {
     return null;
   };
 
+  const toSeconds = (value) =>
+    Number.isFinite(value) ? value / 1000 : null;
+
   const buildInsightsEntries = (
     sessions = [],
     recordingsByDate = buildRecordingsMap(cachedRecordings || [])
@@ -1341,6 +1362,18 @@ document.addEventListener("DOMContentLoaded", () => {
         : null;
       const playbackStartTime = getPointTime(session.points, playbackStartIdx);
       const playbackEndTime = getPointTime(session.points, playbackEndIdx);
+      const baselineDivMaxTimeSec = toSeconds(
+        getPointTime(session.points, deviation.baselineDivMaxIndex)
+      );
+      const baselineDivMaxAfterBaseTimeSec = toSeconds(
+        getPointTime(session.points, deviation.baselineDivMaxAfterBaseIndex)
+      );
+      const baselineDivMinTimeSec = toSeconds(
+        getPointTime(session.points, deviation.baselineDivMinIndex)
+      );
+      const baselineDivMinAfterMaxTimeSec = toSeconds(
+        getPointTime(session.points, deviation.baselineDivMinAfterMaxIndex)
+      );
       return {
         sessionKey: session.sessionKey || "Сессия",
         experimentName: meta?.experimentName || "—",
@@ -1364,12 +1397,19 @@ document.addEventListener("DOMContentLoaded", () => {
         baselineDivMax: deviation.baselineDivMax,
         baselineDivMaxPerc: deviation.baselineDivMaxPerc,
         baselineDivMaxTimeProp: deviation.baselineDivMaxTimeProp,
+        baselineDivMaxTimeSec,
+        baselineDivMaxAfterBase: deviation.baselineDivMaxAfterBase,
+        baselineDivMaxAfterBasePerc: deviation.baselineDivMaxAfterBasePerc,
+        baselineDivMaxAfterBaseTimeProp: deviation.baselineDivMaxAfterBaseTimeProp,
+        baselineDivMaxAfterBaseTimeSec,
         baselineDivMin: deviation.baselineDivMin,
         baselineDivMinPerc: deviation.baselineDivMinPerc,
         baselineDivMinTimeProp: deviation.baselineDivMinTimeProp,
+        baselineDivMinTimeSec,
         baselineDivMinAfterMax: deviation.baselineDivMinAfterMax,
         baselineDivMinAfterMaxPerc: deviation.baselineDivMinAfterMaxPerc,
         baselineDivMinAfterMaxTimeProp: deviation.baselineDivMinAfterMaxTimeProp,
+        baselineDivMinAfterMaxTimeSec,
       };
     });
   };
@@ -1434,12 +1474,19 @@ document.addEventListener("DOMContentLoaded", () => {
             <td>${fmt(entry.baselineDivMax)}</td>
             <td>${fmt(entry.baselineDivMaxPerc)}</td>
             <td>${fmt(entry.baselineDivMaxTimeProp)}</td>
+            <td>${fmt(entry.baselineDivMaxTimeSec)}</td>
             <td>${fmt(entry.baselineDivMin)}</td>
             <td>${fmt(entry.baselineDivMinPerc)}</td>
             <td>${fmt(entry.baselineDivMinTimeProp)}</td>
+            <td>${fmt(entry.baselineDivMinTimeSec)}</td>
             <td>${fmt(entry.baselineDivMinAfterMax)}</td>
             <td>${fmt(entry.baselineDivMinAfterMaxPerc)}</td>
             <td>${fmt(entry.baselineDivMinAfterMaxTimeProp)}</td>
+            <td>${fmt(entry.baselineDivMinAfterMaxTimeSec)}</td>
+            <td>${fmt(entry.baselineDivMaxAfterBase)}</td>
+            <td>${fmt(entry.baselineDivMaxAfterBasePerc)}</td>
+            <td>${fmt(entry.baselineDivMaxAfterBaseTimeProp)}</td>
+            <td>${fmt(entry.baselineDivMaxAfterBaseTimeSec)}</td>
           </tr>
         `;
       })
@@ -1468,14 +1515,21 @@ document.addEventListener("DOMContentLoaded", () => {
               <th>Макс откл.</th>
               <th>Макс откл., %</th>
               <th>Время макс, доля</th>
+              <th>Время макс, с</th>
               <th>Мин откл.</th>
               <th>Мин откл., %</th>
               <th>Время мин, доля</th>
+              <th>Время мин, с</th>
               <th>Мин после макс</th>
               <th>Мин после макс, %</th>
               <th>Время мин после макс, доля</th>
-            </tr>
-          </thead>
+              <th>Время мин после макс, с</th>
+                <th>Max after base</th>
+                <th>Max after base, %</th>
+                <th>Max after base, pos</th>
+                <th>Max after base time, s</th>
+              </tr>
+            </thead>
           <tbody>
             ${rows}
           </tbody>
@@ -1733,12 +1787,19 @@ document.addEventListener("DOMContentLoaded", () => {
     { key: "baselineDivMax", label: "max_delta" },
     { key: "baselineDivMaxPerc", label: "max_delta_pct" },
     { key: "baselineDivMaxTimeProp", label: "max_delta_pos" },
+    { key: "baselineDivMaxTimeSec", label: "max_delta_time_s" },
     { key: "baselineDivMin", label: "min_delta" },
     { key: "baselineDivMinPerc", label: "min_delta_pct" },
     { key: "baselineDivMinTimeProp", label: "min_delta_pos" },
+    { key: "baselineDivMinTimeSec", label: "min_delta_time_s" },
     { key: "baselineDivMinAfterMax", label: "min_after_max_delta" },
     { key: "baselineDivMinAfterMaxPerc", label: "min_after_max_delta_pct" },
     { key: "baselineDivMinAfterMaxTimeProp", label: "min_after_max_delta_pos" },
+    { key: "baselineDivMinAfterMaxTimeSec", label: "min_after_max_delta_time_s" },
+    { key: "baselineDivMaxAfterBase", label: "max_after_base_delta" },
+    { key: "baselineDivMaxAfterBasePerc", label: "max_after_base_delta_pct" },
+    { key: "baselineDivMaxAfterBaseTimeProp", label: "max_after_base_delta_pos" },
+    { key: "baselineDivMaxAfterBaseTimeSec", label: "max_after_base_delta_time_s" },
   ];
 
   const buildInsightsExportRows = (entries, columns) =>
