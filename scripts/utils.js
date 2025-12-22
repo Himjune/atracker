@@ -6,8 +6,12 @@ const EyeTrackerUtils = (() => {
     if (values.length === 0) {
       return null;
     }
+    
     const sum = values.reduce((acc, value) => acc + value, 0);
-    return sum / values.length;
+    let avg = sum / values.length;
+
+    if (values.length > 1 && Math.abs(values[0]-values[1]) > 0.9) avg = (avg + Math.min(values[0],values[1]))/2;
+    return avg;
   };
 
   return {
